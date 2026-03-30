@@ -5,6 +5,7 @@ Complete FSM implementation with state management
 from typing import Dict
 from .fsm_base import RobotFSM, FSMStateName
 from policy.walk_amp.fsm_walkamp import FSMStateWALKAMP
+from policy.walk_amp.fsm_walkamp_ov import FSMStateWALKAMPOV
 from policy.zero.fsm_zero import FSMStateZero
 from policy.stop.fsm_stop import FSMStateStop
 from policy.beyond_mimic.fsm_beyond_mimic import FSMStateBeyondMimic
@@ -24,7 +25,8 @@ def timing_decorator(func):
         result = func(*args, **kwargs)
         end_time = time.perf_counter()
         execution_time = end_time - start_time
-        print(f"[TIMING] {func.__name__} executed in {execution_time:.6f} seconds")
+        # 注释掉打印，避免过多输出
+        # print(f"[TIMING] {func.__name__} executed in {execution_time:.6f} seconds")
         return result
     return wrapper
 
@@ -50,6 +52,7 @@ class RobotFSMImpl(RobotFSM):
         self.state_objects[FSMStateName.STOP] = FSMStateStop(self.robot_data_)
         self.state_objects[FSMStateName.ZERO] = FSMStateZero(self.robot_data_)
         self.state_objects[FSMStateName.WALKAMP] = FSMStateWALKAMP(self.robot_data_)
+        self.state_objects[FSMStateName.WALKAMP_OV] = FSMStateWALKAMPOV(self.robot_data_)
 
         # TODO: 添加其他状态对象
     @timing_decorator

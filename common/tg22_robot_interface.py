@@ -1,6 +1,7 @@
 """
-Robot Interface
-Python equivalent of the C++ RobotInterface class
+TG22 Robot Interface
+Python equivalent adapted for TG22 robot (20 motors: 12 legs + 8 arms, no waist)
+Based on original RobotInterfaceImpl but without waist motors
 """
 from __future__ import annotations
 import queue
@@ -18,8 +19,8 @@ from std_msgs.msg import String
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import transforms3d as t3d
-from .body_id_map import BodyServoIdMap
-from .robot_data import RobotData
+from common.tg22_body_id_map import TG22BodyServoIdMap
+from common.robot_data import RobotData
 import functools
 import time
 import math
@@ -69,8 +70,8 @@ class RobotInterface(ABC):
 
 
 
-class RobotInterfaceImpl(RobotInterface):
-    """机器人接口具体实现"""
+class TG22RobotInterfaceImpl(RobotInterface):
+    """TG22机器人接口具体实现"""
 
     def __init__(self, robot_data: RobotData, config_path: str = ''):
         super().__init__(robot_data)
@@ -78,21 +79,18 @@ class RobotInterfaceImpl(RobotInterface):
         self.node = None
         self.config_path = config_path
 
-        # ID映射
-        self.id_map = BodyServoIdMap()
+        # ID映射（TG22专用）
+        self.id_map = TG22BodyServoIdMap()
         self.id_map.body_can_id_map_init()
 
         # 消息队列
         self.queue_leg_motor_state = PeekableQueue(maxsize=1)
         self.queue_arm_motor_state = PeekableQueue(maxsize=1)
-        self.queue_waist_motor_state = PeekableQueue(maxsize=1)
         self.queue_imu_xsens = PeekableQueue(maxsize=1)
-        self.queue_walk_cmd = PeekableQueue(maxsize=1)
 
-
-        # 关节维度
+        # 关节维度（TG22: 20电机 + 6浮动基 = 26）
         self.floating_base_dof = 6
-        self.whole_joint_nums = self.id_map.whole_motor_nums + self.floating_base_dof
+        self.whole_joint_nums = self.id_map.whole_motor_nums + self.floating_base_dof  # 26
 
         # 临时变量用于优化计算
         self.temp_q = np.empty(self.id_map.whole_motor_nums)
@@ -107,16 +105,16 @@ class RobotInterfaceImpl(RobotInterface):
         # 添加标志位，用于跟踪是否是首次接收数据
         self.first_leg_data_received = False
         self.first_arm_data_received = False
-        self.first_waist_data_received = False
 
         # 关节限位
         self.joint_limits = {}
         self.joint_pos_threshold = math.pi
 
-        # 串并联转换器
+        # 串并联转换器（脚踝并联机构）
         self.fun_s2p = FuncSPTrans()
 
         # 串并联转换相关变量
+        # TG22脚踝索引：左脚踝(4,5)，右脚踝(10,11)
         self.left_ankle_indices = np.array([4, 5]) + self.floating_base_dof
         self.right_ankle_indices = np.array([10, 11]) + self.floating_base_dof
         self.q_a_p = np.zeros(4)  # 并联关节位置
@@ -125,17 +123,11 @@ class RobotInterfaceImpl(RobotInterface):
         self.ankle_kp_p = np.zeros(4)  # 并联关节刚度
         self.ankle_kd_p = np.zeros(4)  # 并联关节阻尼
 
-        # TF相关属性
-        self.tf_buffer = None
-        self.tf_listener = None
-        
         # ROS publishers and subscribers
         self.pub_leg_motor_cmd = None
         self.pub_arm_motor_cmd = None
-        self.pub_waist_motor_cmd = None
         self.sub_leg_state = None
         self.sub_arm_state = None
-        self.sub_waist_state = None
 
         # 当前机器人所处状态
         self.current_state: FSMStateName = FSMStateName.STOP
@@ -164,28 +156,28 @@ class RobotInterfaceImpl(RobotInterface):
                 f"Failed to load joint limits config from {config_path}: {e}")
 
         # 读取运行模式
-        self.sim = config.get('sim')
-        self.debug = config.get('debug')
+        self.sim = config.get('sim', False)
+        self.debug = config.get('debug', False)
         # 机器人接口配置
-        interface_config = config.get('robot_interface')
+        interface_config = config.get('robot_interface', {})
         # 是否限位
-        self.clip_actions = interface_config.get('clip_actions')
+        self.clip_actions = interface_config.get('clip_actions', False)
         # 加载关节限位值
         self._load_joint_limits(interface_config)
         # 加载控制状态
         self._load_control_status(interface_config)
         # 零位
-        self.zero_pos = np.array(interface_config.get('zero_pos'))
+        self.zero_pos = np.array(interface_config.get('zero_pos', []))
         # 电流转换比例
-        self.ct_scale = np.array(interface_config.get('ct_scale'))
+        self.ct_scale = np.array(interface_config.get('ct_scale', []))
         # IMU 数据偏移
         self.xsense_roll_offset = interface_config.get(
-            'xsense_data_roll_offset')
+            'xsense_data_roll_offset', 0.0)
         # 禁用电机
         self.disable_joints_ = interface_config.get('disable_joints', False)
         # 脚踝Kp,Kd
-        self.ankle_kp_p = np.array(interface_config.get('ankle_kp_p'))
-        self.ankle_kd_p = np.array(interface_config.get('ankle_kd_p'))
+        self.ankle_kp_p = np.array(interface_config.get('ankle_kp_p', [15.0, 15.0, 15.0, 15.0]))
+        self.ankle_kd_p = np.array(interface_config.get('ankle_kd_p', [1.25, 1.25, 1.25, 1.25]))
 
     def _load_control_status(self, config: Dict[str, Any]):
         # 字符串命令到枚举值的映射
@@ -193,13 +185,13 @@ class RobotInterfaceImpl(RobotInterface):
             "STOP": FSMStateName.STOP,
             "ZERO": FSMStateName.ZERO,
             "WALKAMP": FSMStateName.WALKAMP,
-            "WALKAMP_OV": FSMStateName.WALKAMP_OV,
         }
-        self.waist_control_status = [state_to_FSMState[state] for state in config.get('waist_control_status')]
-        self.legs_control_status = [state_to_FSMState[state] for state in config.get('legs_control_status')]
-        self.arms_control_status = [state_to_FSMState[state] for state in config.get('arms_control_status')]
-        self.left_arm_only_status = [state_to_FSMState[state] for state in config.get('left_arm_only_status')]
-        self.right_arm_only_status = [state_to_FSMState[state] for state in config.get('right_arm_only_status')]
+        # TG22无腰部，腰部状态为空
+        self.waist_control_status = []
+        self.legs_control_status = []  # 空代表都允许控制
+        self.arms_control_status = [state_to_FSMState.get(state) for state in config.get('arms_control_status', ["ZERO", "STOP", "WALKAMP"]) if state in state_to_FSMState]
+        self.left_arm_only_status = [state_to_FSMState.get(state) for state in config.get('left_arm_only_status', []) if state in state_to_FSMState]
+        self.right_arm_only_status = [state_to_FSMState.get(state) for state in config.get('right_arm_only_status', []) if state in state_to_FSMState]
 
     def _load_joint_limits(self, config: Dict[str, Any]):
         """从配置文件加载关节限位值"""
@@ -207,10 +199,10 @@ class RobotInterfaceImpl(RobotInterface):
         joint_limits_config = config.get('joint_limits', None)
 
         if joint_limits_config is None:
-            error_msg = "No joint_limits section in config"
-            self.node.get_logger().error(error_msg)
-            raise ValueError(error_msg)
-        else:
+            self.node.get_logger().warn("No joint_limits section in config, skipping joint limits")
+            return
+            
+        try:
             # 从配置中加载限位值
             for joint_name, limits in joint_limits_config.items():
                 if 'min' in limits and 'max' in limits:
@@ -224,6 +216,10 @@ class RobotInterfaceImpl(RobotInterface):
                     raise ValueError(error_msg)
 
             self.node.get_logger().info(f"Loaded joint limits from {config}")
+        except Exception as e:
+            self.node.get_logger().warn(f"Failed to load joint limits: {e}")
+            return
+            
         # 预计算ID到限位的映射
         self.id_to_limits = {}
         for joint_name, limits in self.joint_limits.items():
@@ -249,7 +245,7 @@ class RobotInterfaceImpl(RobotInterface):
         # 加载配置文件
         self.load_config()
         
-        node.get_logger().info("Robot interface initialized")
+        node.get_logger().info("TG22 Robot interface initialized")
 
     def _init_ros_interfaces(self):
         """初始化ROS接口"""
@@ -258,13 +254,11 @@ class RobotInterfaceImpl(RobotInterface):
             # history=HistoryPolicy.KEEP_LAST,
             depth=10)
 
-        # 发布者
+        # 发布者（仅腿部和手臂，无腰部）
         self.pub_leg_motor_cmd = self.node.create_publisher(
             CmdMotorCtrl, '/leg/cmd_ctrl', qos_profile)
         self.pub_arm_motor_cmd = self.node.create_publisher(
             CmdMotorCtrl, '/arm/cmd_ctrl', qos_profile)
-        self.pub_waist_motor_cmd = self.node.create_publisher(
-            CmdMotorCtrl, '/waist/cmd_ctrl', qos_profile)
 
         # 订阅者
         self.sub_leg_state = self.node.create_subscription(
@@ -273,11 +267,8 @@ class RobotInterfaceImpl(RobotInterface):
         self.sub_arm_state = self.node.create_subscription(
             MotorStatusMsg, '/arm/status', self._arm_motor_status_callback,
             qos_profile)
-        self.sub_waist_state = self.node.create_subscription(
-            MotorStatusMsg, '/waist/status', self._waist_motor_status_callback,
-            qos_profile)
 
-        #（非电机相关）
+        # IMU订阅
         self.sub_imu_xsens = self.node.create_subscription(
             Imu, '/imu/status', self._imu_status_callback, qos_profile)
 
@@ -339,25 +330,6 @@ class RobotInterfaceImpl(RobotInterface):
                     self.motor_state_to_robot_state(
                         status, self.first_arm_data_received)
 
-                break
-            except queue.Empty:
-                time.sleep(0.0001)
-
-        # 处理腰部电机状态
-        while True:
-            try:
-                msg = self.queue_waist_motor_state.peek()
-                if self.debug:
-                    current_time = self.node.get_clock().now().to_msg()
-                    msg_time = msg.header.stamp
-                    time_diff = (current_time.sec -
-                                 msg_time.sec) * 1000000000 + (
-                                     current_time.nanosec - msg_time.nanosec)
-                    time_diff_ms = time_diff / 1000000.0
-                    print(f"Time difference: {time_diff_ms} ms")
-                for status in msg.status:
-                    self.motor_state_to_robot_state(
-                        status, self.first_waist_data_received)
                 break
             except queue.Empty:
                 time.sleep(0.0001)
@@ -446,7 +418,9 @@ class RobotInterfaceImpl(RobotInterface):
         快速检查并修正关节位置限位（避免重复查询）
         """
         if not self.sim and self.clip_actions:
-            limit = self.id_to_limits[cmd_name]
+            limit = self.id_to_limits.get(cmd_name)
+            if limit is None:
+                return True, position
             clipped_pos = np.clip(position, limit["min"], limit["max"])
             return clipped_pos == position, clipped_pos
         else:
@@ -489,9 +463,10 @@ class RobotInterfaceImpl(RobotInterface):
             self.node.get_logger().warn("Joints disabled!")
 
     def publish_motor_commands(self, flag: ControlFlag):
-        # flag_fsm_command = flag.fsm_state_command
+        """发布电机控制命令（仅腿部和手臂）"""
         current_state = self.current_state
-        # 发布腿部控制命令
+        
+        # 发布腿部控制命令（12个关节）
         if self.legs_control_status == [] or current_state in self.legs_control_status:
             leg_msg = CmdMotorCtrl()
             leg_msg.header.stamp = self.node.get_clock().now().to_msg()
@@ -500,12 +475,9 @@ class RobotInterfaceImpl(RobotInterface):
                 cmd.name = self.id_map.get_id_by_index(i)
                 cmd.kp = float(self.robot_data_.joint_kp_p_[i])
                 cmd.kd = float(self.robot_data_.joint_kd_p_[i])
-                cmd.pos = float(self.robot_data_.q_d_[i +
-                                                      self.floating_base_dof])
-                cmd.spd = float(
-                    self.robot_data_.q_dot_d_[i + self.floating_base_dof])
-                cmd.tor = float(
-                    self.robot_data_.tau_d_[i + self.floating_base_dof])
+                cmd.pos = float(self.robot_data_.q_d_[i + self.floating_base_dof])
+                cmd.spd = float(self.robot_data_.q_dot_d_[i + self.floating_base_dof])
+                cmd.tor = float(self.robot_data_.tau_d_[i + self.floating_base_dof])
 
                 # 检查关节位置限位
                 within_limit, cmd.pos = self._check_and_clip_joint_limits_fast(
@@ -517,63 +489,25 @@ class RobotInterfaceImpl(RobotInterface):
                 leg_msg.cmds.append(cmd)
             self.pub_leg_motor_cmd.publish(leg_msg)
 
-        # 只在特定模式下控制腰部
-        if current_state in self.waist_control_status:
-            # 腰部控制命令
-            waist_msg = CmdMotorCtrl()
-            waist_msg.header.stamp = self.node.get_clock().now().to_msg()
-            for i in range(self.id_map.waist_motor_nums):
-                cmd = MotorCtrl()
-                motor_idx = i + self.id_map.leg_motor_nums
-                cmd.name = self.id_map.get_id_by_index(
-                    motor_idx)  # 12 -> 33(yaw)
-                cmd.kp = float(self.robot_data_.joint_kp_p_[motor_idx])
-                cmd.kd = float(self.robot_data_.joint_kd_p_[motor_idx])
-                cmd.pos = float(self.robot_data_.q_d_[motor_idx +
-                                                      self.floating_base_dof])
-                cmd.spd = float(
-                    self.robot_data_.q_dot_d_[motor_idx +
-                                              self.floating_base_dof])
-                cmd.tor = float(
-                    self.robot_data_.tau_d_[motor_idx +
-                                            self.floating_base_dof])
-
-                # 检查关节位置限位
-                within_limit, cmd.pos = self._check_and_clip_joint_limits_fast(
-                    cmd.name, cmd.pos)
-                if not within_limit:
-                    print(
-                        f"Joint (id: {cmd.name}) position {cmd.pos} is out of limits"
-                    )
-                waist_msg.cmds.append(cmd)
-            # print(f'waist_msg {waist_msg}')
-            self.pub_waist_motor_cmd.publish(waist_msg)
-
-        # 只在特定模式下控制手臂
+        # 只在特定模式下控制手臂（8个关节）
         if current_state in self.arms_control_status:
-            # 手臂控制命令
             arm_msg = CmdMotorCtrl()
             arm_msg.header.stamp = self.node.get_clock().now().to_msg()
             if current_state in self.left_arm_only_status:
-                control_index = np.arange(0, 7)
+                control_index = np.arange(0, 4)
             elif current_state in self.right_arm_only_status:
-                control_index = np.arange(self.id_map.arm_motor_nums - 7, self.id_map.arm_motor_nums)
+                control_index = np.arange(self.id_map.arm_motor_nums - 4, self.id_map.arm_motor_nums)
             else:
                 control_index = np.arange(0, self.id_map.arm_motor_nums)
             for i in control_index:
                 cmd = MotorCtrl()
-                motor_idx = i + self.id_map.leg_motor_nums + self.id_map.waist_motor_nums
+                motor_idx = i + self.id_map.leg_motor_nums  # 手臂索引起始于腿部之后
                 cmd.name = self.id_map.get_id_by_index(motor_idx)
                 cmd.kp = float(self.robot_data_.joint_kp_p_[motor_idx])
                 cmd.kd = float(self.robot_data_.joint_kd_p_[motor_idx])
-                cmd.pos = float(self.robot_data_.q_d_[motor_idx +
-                                                      self.floating_base_dof])
-                cmd.spd = float(
-                    self.robot_data_.q_dot_d_[motor_idx +
-                                              self.floating_base_dof])
-                cmd.tor = float(
-                    self.robot_data_.tau_d_[motor_idx +
-                                            self.floating_base_dof])
+                cmd.pos = float(self.robot_data_.q_d_[motor_idx + self.floating_base_dof])
+                cmd.spd = float(self.robot_data_.q_dot_d_[motor_idx + self.floating_base_dof])
+                cmd.tor = float(self.robot_data_.tau_d_[motor_idx + self.floating_base_dof])
 
                 # 检查关节位置限位
                 within_limit, cmd.pos = self._check_and_clip_joint_limits_fast(
@@ -583,7 +517,6 @@ class RobotInterfaceImpl(RobotInterface):
                         f"Joint (id: {cmd.name}) position {cmd.pos} is out of limits"
                     )
                 arm_msg.cmds.append(cmd)
-            # print(f'arm_msg {arm_msg}')
             self.pub_arm_motor_cmd.publish(arm_msg)
 
     @timing_decorator
@@ -622,18 +555,6 @@ class RobotInterfaceImpl(RobotInterface):
             except:
                 pass  # 如果仍然无法加入，忽略
 
-    def _waist_motor_status_callback(self, msg):
-        """腰部电机状态回调"""
-        try:
-            self.queue_waist_motor_state.put_nowait(msg)
-        except queue.Full:
-            # 队列满时移除旧数据，加入新数据
-            try:
-                self.queue_waist_motor_state.get_nowait()  # 移除旧数据
-                self.queue_waist_motor_state.put_nowait(msg)  # 加入新数据
-            except:
-                pass  # 如果仍然无法加入，忽略
-
     def _imu_status_callback(self, msg):
         """IMU状态回调"""
         try:
@@ -647,7 +568,7 @@ class RobotInterfaceImpl(RobotInterface):
 
 
     def ankle_parallel_to_serial(self):
-        # 串并联转换：并转串 (类似C++版本中的处理)
+        """串并联转换：并转串"""
         # 提取左右脚两个踝关节（并联关节）
         q_a_p = np.zeros(4)  # 并联关节角度（实际）
         qdot_a_p = np.zeros(4)  # 并联关节速度（实际）
@@ -656,10 +577,8 @@ class RobotInterfaceImpl(RobotInterface):
         qdot_a_s = np.zeros(4)  # 串联关节速度（实际）
         tor_a_s = np.zeros(4)  # 串联关节力矩（实际）
 
-        q_a_p[:2] = self.robot_data_.q_a_[
-            self.left_ankle_indices]  # 左脚踝关节 (pitch, roll)
-        q_a_p[2:] = self.robot_data_.q_a_[
-            self.right_ankle_indices]  # 右脚踝关节 (pitch, roll)
+        q_a_p[:2] = self.robot_data_.q_a_[self.left_ankle_indices]
+        q_a_p[2:] = self.robot_data_.q_a_[self.right_ankle_indices]
 
         qdot_a_p[:2] = self.robot_data_.q_dot_a_[self.left_ankle_indices]
         qdot_a_p[2:] = self.robot_data_.q_dot_a_[self.right_ankle_indices]
@@ -690,8 +609,8 @@ class RobotInterfaceImpl(RobotInterface):
             print("tor_a_s:", tor_a_s)
 
         # 用串联关节值替换原来的并联关节值
-        self.robot_data_.q_a_[self.left_ankle_indices] = q_a_s[:2]  # 左脚踝关节串联值
-        self.robot_data_.q_a_[self.right_ankle_indices] = q_a_s[2:]  # 右脚踝关节串联值
+        self.robot_data_.q_a_[self.left_ankle_indices] = q_a_s[:2]
+        self.robot_data_.q_a_[self.right_ankle_indices] = q_a_s[2:]
 
         self.robot_data_.q_dot_a_[self.left_ankle_indices] = qdot_a_s[:2]
         self.robot_data_.q_dot_a_[self.right_ankle_indices] = qdot_a_s[2:]
@@ -700,8 +619,7 @@ class RobotInterfaceImpl(RobotInterface):
         self.robot_data_.tau_a_[self.right_ankle_indices] = tor_a_s[2:]
 
     def ankle_serial_to_parallel(self):
-        # 串转并：将串联关节命令转换为并联关节命令（类似C++版本）
-        # 提取踝关节两关节的串联命令
+        """串转并：将串联关节命令转换为并联关节命令"""
         q_d_p = np.zeros(4)  # 并联关节角度（期望）
         qdot_d_p = np.zeros(4)  # 并联关节速度（期望）
         tor_d_p = np.zeros(4)  # 并联关节力矩（期望）
@@ -709,9 +627,8 @@ class RobotInterfaceImpl(RobotInterface):
         qdot_d_s = np.zeros(4)  # 串联关节速度（期望）
         tor_d_s = np.zeros(4)  # 串联关节力矩（期望）
 
-        q_d_s[:2] = self.robot_data_.q_d_[self.left_ankle_indices]  # 左脚踝关节串联命令
-        q_d_s[2:] = self.robot_data_.q_d_[
-            self.right_ankle_indices]  # 右脚踝关节串联命令
+        q_d_s[:2] = self.robot_data_.q_d_[self.left_ankle_indices]
+        q_d_s[2:] = self.robot_data_.q_d_[self.right_ankle_indices]
 
         qdot_d_s[:2] = self.robot_data_.q_dot_d_[self.left_ankle_indices]
         qdot_d_s[2:] = self.robot_data_.q_dot_d_[self.right_ankle_indices]
@@ -721,23 +638,17 @@ class RobotInterfaceImpl(RobotInterface):
 
         q_a_s = np.zeros(4)  # 串联关节角度（实际）
         qdot_a_s = np.zeros(4)  # 串联关节速度（实际）
-        q_a_s[:2] = self.robot_data_.q_a_[self.left_ankle_indices]  # 左脚踝关节串联值
-        q_a_s[2:] = self.robot_data_.q_a_[self.right_ankle_indices]  # 右脚踝关节串联值
-        qdot_a_s[:2] = self.robot_data_.q_dot_a_[
-            self.left_ankle_indices]  # 左脚踝关节串联速度
-        qdot_a_s[2:] = self.robot_data_.q_dot_a_[
-            self.right_ankle_indices]  # 右脚踝关节串联速度
+        q_a_s[:2] = self.robot_data_.q_a_[self.left_ankle_indices]
+        q_a_s[2:] = self.robot_data_.q_a_[self.right_ankle_indices]
+        qdot_a_s[:2] = self.robot_data_.q_dot_a_[self.left_ankle_indices]
+        qdot_a_s[2:] = self.robot_data_.q_dot_a_[self.right_ankle_indices]
 
         kp = np.zeros(4)  # 串联关节刚度
         kd = np.zeros(4)  # 串联关节阻尼
-        kp[:2] = self.robot_data_.joint_kp_p_[self.left_ankle_indices -
-                                              self.floating_base_dof]
-        kp[2:] = self.robot_data_.joint_kp_p_[self.right_ankle_indices -
-                                              self.floating_base_dof]
-        kd[:2] = self.robot_data_.joint_kd_p_[self.left_ankle_indices -
-                                              self.floating_base_dof]
-        kd[2:] = self.robot_data_.joint_kd_p_[self.right_ankle_indices -
-                                              self.floating_base_dof]
+        kp[:2] = self.robot_data_.joint_kp_p_[self.left_ankle_indices - self.floating_base_dof]
+        kp[2:] = self.robot_data_.joint_kp_p_[self.right_ankle_indices - self.floating_base_dof]
+        kd[:2] = self.robot_data_.joint_kd_p_[self.left_ankle_indices - self.floating_base_dof]
+        kd[2:] = self.robot_data_.joint_kd_p_[self.right_ankle_indices - self.floating_base_dof]
 
         tor_d_s = kp * (q_d_s - q_a_s) + kd * (qdot_d_s - qdot_a_s)
 
@@ -763,29 +674,19 @@ class RobotInterfaceImpl(RobotInterface):
             print("tor_d_p:", tor_d_p)
 
         # 用并联关节命令覆盖原来的串联命令
-        self.robot_data_.q_d_[self.left_ankle_indices] = q_d_p[:2]  # 左脚踝关节并联命令
-        self.robot_data_.q_d_[self.right_ankle_indices] = q_d_p[2:]  # 右脚踝关节并联命令
+        self.robot_data_.q_d_[self.left_ankle_indices] = q_d_p[:2]
+        self.robot_data_.q_d_[self.right_ankle_indices] = q_d_p[2:]
 
         self.robot_data_.q_dot_d_[self.left_ankle_indices] = qdot_d_p[:2]
         self.robot_data_.q_dot_d_[self.right_ankle_indices] = qdot_d_p[2:]
 
-        # self.robot_data_.tau_d_[self.left_ankle_indices] = tor_d_p[:2]
-        # self.robot_data_.tau_d_[self.right_ankle_indices] = tor_d_p[2:]
         self.robot_data_.tau_d_[self.left_ankle_indices] = 0.0
         self.robot_data_.tau_d_[self.right_ankle_indices] = 0.0
         # 更新脚踝Kp,Kd
-        self.robot_data_.joint_kp_p_[
-            self.left_ankle_indices -
-            self.floating_base_dof] = self.ankle_kp_p[:2]
-        self.robot_data_.joint_kp_p_[
-            self.right_ankle_indices -
-            self.floating_base_dof] = self.ankle_kp_p[2:]
-        self.robot_data_.joint_kd_p_[
-            self.left_ankle_indices -
-            self.floating_base_dof] = self.ankle_kd_p[:2]
-        self.robot_data_.joint_kd_p_[
-            self.right_ankle_indices -
-            self.floating_base_dof] = self.ankle_kd_p[2:]
+        self.robot_data_.joint_kp_p_[self.left_ankle_indices - self.floating_base_dof] = self.ankle_kp_p[:2]
+        self.robot_data_.joint_kp_p_[self.right_ankle_indices - self.floating_base_dof] = self.ankle_kp_p[2:]
+        self.robot_data_.joint_kd_p_[self.left_ankle_indices - self.floating_base_dof] = self.ankle_kd_p[:2]
+        self.robot_data_.joint_kd_p_[self.right_ankle_indices - self.floating_base_dof] = self.ankle_kd_p[2:]
 
     def update_robot_cmd(self, flag: ControlFlag):
         """更新机器人控制命令"""
@@ -797,6 +698,7 @@ class RobotInterfaceImpl(RobotInterface):
             self.robot_data_.walk_cmd_ = [x_command, y_command, yaw_command]
         self.robot_data_.control_flag.fsm_state_command = flag.fsm_state_command
 
-def get_robot_interface(robot_data: RobotData, config_path: str) -> RobotInterface:
-    """工厂函数，返回机器人接口实例"""
-    return RobotInterfaceImpl(robot_data, config_path)
+
+def get_tg22_robot_interface(robot_data: RobotData, config_path: str) -> RobotInterface:
+    """工厂函数，返回TG22机器人接口实例"""
+    return TG22RobotInterfaceImpl(robot_data, config_path)

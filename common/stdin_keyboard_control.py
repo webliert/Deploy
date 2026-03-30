@@ -57,6 +57,8 @@ class KeyboardController:
         print("Available keyboard commands:")
         print("  z - Goto ZERO state")
         print("  c - Goto STOP state")
+        print("  m - Goto WALKAMP state")
+        print("  v - Goto BEYONDMIMIC state")
         print("  Left/Right arrows - Adjust height")
         print("  w/a/s/d - Movement controls")
         print("  q/e - Rotation controls (turn left/right)")
@@ -322,6 +324,29 @@ class KeyboardController:
             self.keyboard_flag.fsm_state_command = "gotoWALKAMP"
             print("Command: gotoWALKAMP")
     
+    def _emergency_stop(self):
+        """紧急停止"""
+        self._handle_ctrl_c()
+
+    def _on_h_key(self):
+        """处理h键（备用功能）"""
+        print("h key pressed - available for additional functions")
+        with self.data_mutex:
+            self.keyboard_flag.fsm_state_command = "gotoWALKAMP_OV"
+            print("Command: gotoWALKAMP_OV")
+
+    def _on_g_key(self):
+        """处理g键（备用功能）"""
+        print("g key pressed - available for additional functions")
+
+    def _on_p_key(self):
+        """处理p键（备用功能）"""
+        print("p key pressed - available for additional functions")
+
+    def _on_o_key(self):
+        """处理o键（备用功能）"""
+        print("o key pressed - available for additional functions")
+
     def _handle_ctrl_c(self):
         """处理Ctrl+C - 发送SIGINT信号给主进程"""
         # 先停止键盘控制器

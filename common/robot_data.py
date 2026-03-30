@@ -67,17 +67,17 @@ class RobotData:
 
 
     def get_joint_pos(self) -> np.ndarray:
-        joint_start_idx = 35 - self.motor_num
+        joint_start_idx = self.whole_joint_num - self.motor_num
         joint_pos = self.q_a_[joint_start_idx:].astype(np.float32) 
         return joint_pos
     
     def get_serial_joint_pos_desired(self) -> np.ndarray:
-        joint_start_idx = 35 - self.motor_num
+        joint_start_idx = self.whole_joint_num - self.motor_num
         joint_pos_desired = self.q_d_s_[joint_start_idx:].astype(np.float32)
         return joint_pos_desired
 
     def get_joint_vel(self)-> np.ndarray:
-        joint_start_idx = 35 - self.motor_num
+        joint_start_idx = self.whole_joint_num - self.motor_num
         joint_vel = self.q_dot_a_[joint_start_idx:].astype(np.float32)
         return joint_vel
 
