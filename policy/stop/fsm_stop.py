@@ -72,7 +72,7 @@ class FSMStateStop(FSMState):
         """运行停止状态 - 与C++版本完全一致"""
         if self.robot_data_ is None:
             return
-        print(f"""[FSMStateStop] Holding position: {self.hold_position_}""")
+        # print(f"""[FSMStateStop] Holding position: {self.hold_position_}""")
         # Enforce the hold position for every frame (equivalent to tail(motor_num_))
         self.robot_data_.q_d_[-self.motor_num_:] = self.hold_position_
         # Set desired joint velocities to zero

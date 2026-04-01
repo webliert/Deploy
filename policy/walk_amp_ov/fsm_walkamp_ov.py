@@ -4,10 +4,10 @@ OpenVINO-based inference for humanoid robot (支持多机器人)
 """
 
 import numpy as np
-import openvino as ov
 
 from FSM.fsm_base import FSMState, FSMStateName
 from common import ControlFlag, RobotData, clip_vector, gait_phase, get_robot_config_manager
+from inference_engine import EngineFactory, EngineType, InferenceEngineBase
 import os
 import yaml
 from scipy.spatial.transform import Rotation
@@ -56,13 +56,6 @@ class FSMStateWALKAMPOV(FSMState):
             self.motor_num_ = policy_config.get('motor_num', 20)
             self.config_manager = None
 
-        # Initialize buffers and actions
-        self.observations_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
-        self.proprio_hist_buf_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
-        self.last_actions_ = np.zeros(self.action_num_, dtype=np.float32)
-        self.actions_ = np.zeros(self.action_num_, dtype=np.float32)
-        self._warm_start_pose = np.zeros(self.motor_num_, dtype=np.float32)
-
         # warm_start_time from main config
         warm_start_time = 0.3
         if self.config_manager:
@@ -88,11 +81,7 @@ class FSMStateWALKAMPOV(FSMState):
 
         self.is_first_step_ = True
 
-        # Initialize OpenVINO session
-        self.model_path = os.path.join(current_dir, "model", policy_config["model_path"])
-        self._init_openvino_session()
-
-        # 从策略配置获取关节列表
+        # 从策略配置获取关节列表（必须在缓冲区初始化之前）
         self.joint_lab = policy_config.get('joint_lab')
         if self.joint_lab is None:
             raise ValueError("[FSMStateWALKAMPOV] Missing 'joint_lab' in walk_amp_ov.yaml")
@@ -127,6 +116,16 @@ class FSMStateWALKAMPOV(FSMState):
 
         self.action_num_ = len(self.joint_seq)
         print(f"[FSMStateWALKAMPOV] Joint count: {len(self.joint_seq)}")
+
+        # Initialize buffers and actions (must be after action_num_ is set)
+        self.observations_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
+        self.proprio_hist_buf_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
+        self.last_actions_ = np.zeros(self.action_num_, dtype=np.float32)
+        self.actions_ = np.zeros(self.action_num_, dtype=np.float32)
+        self._warm_start_pose = np.zeros(self.motor_num_, dtype=np.float32)
+
+        # Initialize inference engine (OpenVINO) - must be after action_num_ is set
+        self._init_inference_engine(policy_config, current_dir)
 
         # joint_xml: 从配置获取关节顺序（与 mujoco XML 一致）
         self.joint_xml = policy_config.get('joint_xml')
@@ -198,36 +197,28 @@ class FSMStateWALKAMPOV(FSMState):
         self.robot_data_.tau_d_[base:base + len(self.joint_xml)] = 0.0
 
 
-    def _init_openvino_session(self):
-        """初始化 OpenVINO 推理会话"""
+    def _init_inference_engine(self, policy_config: dict, current_dir: str):
+        """初始化推理引擎（OpenVINO）"""
+        # 构建引擎配置
+        engine_config = {
+            'engine': {
+                'type': 'openvino',  # 使用 OpenVINO
+                'device': 'CPU',
+            },
+            'model': {
+                'model_path': os.path.join(current_dir, "model", policy_config["model_path"]),
+                'input_size': self.obs_size_ * self.num_hist_,
+                'output_size': self.action_num_,
+                'dtype': 'float32',
+            }
+        }
+        
         try:
-            self.ov_core = ov.Core()
-            ov_model = self.ov_core.read_model(self.model_path)
-            
-            # 处理动态形状 - 设置静态输入形状
-            input_layer = ov_model.input(0)
-            input_partial_shape = input_layer.partial_shape
-            
-            # 检查是否有动态维度
-            if input_partial_shape.is_dynamic:
-                print(f"[FSMStateWALKAMPOV] Model has dynamic input shape: {input_partial_shape}")
-                # 设置静态形状 [batch_size, obs_size * num_hist]
-                static_shape = [1, self.obs_size_ * self.num_hist_]
-                ov_model.reshape({input_layer: static_shape})
-                print(f"[FSMStateWALKAMPOV] Reshaped to static: {static_shape}")
-            
-            self.ov_compiled_model = self.ov_core.compile_model(ov_model, "CPU")
-            self.ov_infer_request = self.ov_compiled_model.create_infer_request()
-
-            print(f"[FSMStateWALKAMPOV] OpenVINO model loaded successfully: {self.model_path}")
-
-            # Print input/output info
-            compiled_input = self.ov_compiled_model.input(0)
-            compiled_output = self.ov_compiled_model.output(0)
-            print(f"[FSMStateWALKAMPOV] Input shape: {compiled_input.shape}, Output shape: {compiled_output.shape}")
+            self.inference_engine_: InferenceEngineBase = EngineFactory.create_from_config(engine_config)
+            print(f"[FSMStateWALKAMPOV] Inference engine loaded: openvino")
         except Exception as e:
-            print(f"[FSMStateWALKAMPOV] Failed to load OpenVINO model: {e}")
-            self.ov_compiled_model = None
+            print(f"[FSMStateWALKAMPOV] Failed to load inference engine: {e}")
+            self.inference_engine_ = None
 
     def on_enter(self):
         """进入WALKAMP状态"""
@@ -356,20 +347,16 @@ class FSMStateWALKAMPOV(FSMState):
         return a - b + c
 
     def compute_actions(self):
-        """使用 OpenVINO 进行推理"""
-        if self.ov_compiled_model is None:
+        """使用统一推理引擎进行推理"""
+        if not hasattr(self, 'inference_engine_') or self.inference_engine_ is None:
             return
 
         try:
             # Prepare input tensor
             input_data = self.observations_.reshape(1, -1).astype(np.float32)
 
-            # OpenVINO inference
-            input_tensor = ov.Tensor(array=input_data, shared_memory=True)
-            self.ov_infer_request.set_input_tensor(input_tensor)
-            self.ov_infer_request.infer()
-            output_tensor = self.ov_infer_request.get_output_tensor()
-            output_data = output_tensor.data[0]
+            # Inference using unified engine interface
+            output_data = self.inference_engine_.infer(input_data)[0]
 
             # Extract and clip actions
             for i in range(self.action_num_):
@@ -383,11 +370,17 @@ class FSMStateWALKAMPOV(FSMState):
                 self.is_first_action_ = False
 
         except Exception as e:
-            print(f"[FSMStateWALKAMPOV] OpenVINO inference error: {e}")
+            print(f"[FSMStateWALKAMPOV] Inference error: {e}")
 
     def on_exit(self):
         """退出WALKAMP状态"""
         print("[FSMStateWALKAMPOV] exit")
+        # 释放推理引擎
+        if hasattr(self, 'inference_engine_') and self.inference_engine_ is not None:
+            try:
+                self.inference_engine_.unload()
+            except Exception as e:
+                print(f"[FSMStateWALKAMPOV] failed to unload inference engine: {e}")
 
     def check_transition(self, flag: ControlFlag) -> FSMStateName:
         """检查状态转换"""

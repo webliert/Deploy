@@ -4,11 +4,11 @@ Concrete implementations of different FSM states
 """
 
 import numpy as np
-import onnxruntime as ort
 
 from typing import Optional
 from FSM.fsm_base import FSMState, FSMStateName
 from common import ControlFlag, RobotData, clip_vector, gait_phase, get_robot_config_manager
+from inference_engine import EngineFactory, EngineType, InferenceEngineBase
 import os
 import yaml
 from scipy.spatial.transform import Rotation
@@ -72,10 +72,6 @@ class FSMStateWALKAMP(FSMState):
 
         self.is_first_step_ = True
 
-        # Initialize ONNX session
-        self.model_path = os.path.join(current_dir, "model", policy_config["model_path"])
-        self._init_onnx_session()
-
         # 从配置获取关节列表
         self.joint_lab = policy_config.get('joint_lab')
         if self.joint_lab is None:
@@ -111,6 +107,9 @@ class FSMStateWALKAMP(FSMState):
 
         self.action_num_ = len(self.joint_seq)
         print(f"[FSMStateWALKAMP] Joint count: {len(self.joint_seq)}")
+
+        # Initialize inference engine from config (must be after action_num_ is set)
+        self._init_inference_engine(policy_config, current_dir)
 
         # Initialize buffers and actions
         self.observations_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
@@ -205,31 +204,32 @@ class FSMStateWALKAMP(FSMState):
         # # 期望力矩 = 0（位置控制）
         self.robot_data_.tau_d_[base:base + len(self.joint_xml)] = 0.0
 
-    def _init_onnx_session(self):
-        """初始化ONNX推理会话"""
+    def _init_inference_engine(self, policy_config: dict, current_dir: str):
+        """初始化推理引擎（支持ONNX, OpenVINO, PyTorch）"""
+        # 构建引擎配置
+        engine_config = {
+            'engine': {
+                'type': policy_config.get('engine_type', 'onnx'),  # 默认使用ONNX
+                'intra_op_num_threads': 1,
+                'inter_op_num_threads': 1,
+                'enable_mem_pattern': False,
+                'enable_mem_reuse': True,
+            },
+            'model': {
+                'model_path': os.path.join(current_dir, "model", policy_config["model_path"]),
+                'input_size': self.obs_size_ * self.num_hist_,
+                'output_size': self.action_num_,
+                'dtype': 'float32',
+            }
+        }
+        
         try:
-            # 配置SessionOptions
-            options = ort.SessionOptions()
-
-            # 启用图优化，使用所有可用的优化（包括算子融合等）
-            options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-
-            # 设置执行模式（可选，默认执行模式是顺序执行，但图优化会改变计算图）
-            # 设置线程数（根据CPU核心数调整）
-            # 建议设置为CPU物理核心数（非超线程数），因为超线程可能不会带来线性提升
-            options.intra_op_num_threads = 1  # 设置计算图中的运算符内部并行线程数
-            options.inter_op_num_threads = 1  # 设置多个运算符之间的并行线程数（如果模型有多个分支）
-
-            # 启用内存优化（避免重复分配内存）
-            options.enable_mem_pattern = False  # 对于固定输入大小，可以设为False以避免内存规划的开销
-            options.enable_mem_reuse = True # 启用内存重用机制
-
-            self.ort_session_ = ort.InferenceSession(self.model_path, options, providers=['CPUExecutionProvider'])
-            
-            print(f"[FSMStateWALKAMP-ONNX] ONNX model loaded successfully: {self.model_path}")
+            self.inference_engine_: InferenceEngineBase = EngineFactory.create_from_config(engine_config)
+            engine_type = engine_config['engine']['type']
+            print(f"[FSMStateWALKAMP] Inference engine loaded: {engine_type}")
         except Exception as e:
-            print(f"[FSMStateWALKAMP] Failed to load ONNX model: {e}")
-            self.ort_session_ = None
+            print(f"[FSMStateWALKAMP] Failed to load inference engine: {e}")
+            self.inference_engine_ = None
 
     def on_enter(self):
         """进入WALKAMP状态"""
@@ -370,35 +370,39 @@ class FSMStateWALKAMP(FSMState):
         c = q_v * (2.0 * np.dot(q_v, v))
         return a - b + c
     def compute_actions(self):
-        if self.ort_session_ is None:
+        if not hasattr(self, 'inference_engine_') or self.inference_engine_ is None:
             return
 
         try:
             # Prepare input tensor
             input_data = self.observations_.reshape(1, -1).astype(np.float32)
 
-            # ONNX inference
-            input_name = self.ort_session_.get_inputs()[0].name
-            outputs = self.ort_session_.run(None, {input_name: input_data})
+            # Inference using unified engine interface
+            output_data = self.inference_engine_.infer(input_data)[0]
 
             # Extract and clip actions exactly like C++
-            output_data = outputs[0][0]
             for i in range(self.action_num_):
                 self.actions_[i] = np.clip(output_data[i], -self.clip_act_, self.clip_act_)
 
             if self.is_first_action_:
-                print("[FSMStateWALKAMP-ONNX] First Observation:")
+                print("[FSMStateWALKAMP] First Observation:")
                 for i in range(self.obs_size_):
                     print(f"{self.observations_[i]:.6f} ", end="")
                 print()
                 self.is_first_action_ = False
 
         except Exception as e:
-            print(f"[FSMStateWALKAMP] ONNX Runtime inference error: {e}")
+            print(f"[FSMStateWALKAMP] Inference error: {e}")
 
     def on_exit(self):
         """退出WALKAMP状态"""
         print("[FSMStateWALKAMP] exit")
+        # 释放推理引擎
+        if hasattr(self, 'inference_engine_') and self.inference_engine_ is not None:
+            try:
+                self.inference_engine_.unload()
+            except Exception as e:
+                print(f"[FSMStateWALKAMP] failed to unload inference engine: {e}")
         # 关掉 obs 日志文件（如果存在）
         obs_log_file = getattr(self, "obs_log_file", None)
         if obs_log_file is not None:
