@@ -1,15 +1,13 @@
 """
 FSM State Implementations - OpenVINO Version
-OpenVINO-based inference for 20-joint humanoid robot
+OpenVINO-based inference for humanoid robot (支持多机器人)
 """
 
 import numpy as np
 import openvino as ov
 
 from FSM.fsm_base import FSMState, FSMStateName
-from common.joystick import ControlFlag
-from common.robot_data import RobotData
-from common.BasicFunction import clip_vector, gait_phase
+from common import ControlFlag, RobotData, clip_vector, gait_phase, get_robot_config_manager
 import os
 import yaml
 from scipy.spatial.transform import Rotation
@@ -17,24 +15,6 @@ from scipy.spatial.transform import Rotation
 
 class FSMStateWALKAMPOV(FSMState):
     """WALKAMP OpenVINO 策略状态实现"""
-
-    def _reset_internal_state(self):
-        """把所有随时间变化的内部状态重置成初始值"""
-        self.observations_.fill(0.0)
-        self.proprio_hist_buf_.fill(0.0)
-        self.last_actions_.fill(0.0)
-        self.actions_.fill(0.0)
-
-        self.is_first_obs_ = True
-        self.is_first_action_ = True
-        self.is_first_step_ = True
-
-        # 期望关节 / 期望速度 / 力矩重置为"初始姿态"
-        base = self.robot_data_.q_d_.shape[0] - self.motor_num_
-        self.robot_data_.q_d_[base:base + len(self.joint_xml)] = self.joint_pos_array
-        self.robot_data_.q_dot_d_[base:base + len(self.joint_xml)] = 0.0
-        self.robot_data_.tau_d_[base:base + len(self.joint_xml)] = 0.0
-
     def __init__(self, robot_data: RobotData):
         super().__init__(robot_data)
 
@@ -45,19 +25,18 @@ class FSMStateWALKAMPOV(FSMState):
             policy_config = yaml.safe_load(f)
 
         # Load configuration
-        self.action_num_ = policy_config.get('actions_size')
-        self.motor_num_ = policy_config.get('motor_num')
-        self.dt_ = policy_config.get('dt')
+        self.action_num_ = policy_config.get('actions_size', 20)
+        self.dt_ = policy_config.get('dt', 0.0025)
 
         # Size configuration
         size_config = policy_config.get('size', {})
-        self.num_hist_ = size_config.get('num_hist')
-        self.obs_size_ = size_config.get('observations_size')
+        self.num_hist_ = size_config.get('num_hist', 10)
+        self.obs_size_ = size_config.get('observations_size', 75)
 
         # Control configuration
         control_config = policy_config.get('control', {})
-        self.action_scale_ = control_config.get('action_scale')
-        self.decimation_ = control_config.get('decimation')
+        self.action_scale_ = control_config.get('action_scale', 0.25)
+        self.decimation_ = control_config.get('decimation', 1)
 
         # Normalization configuration
         norm_config = policy_config.get('normalization', {})
@@ -66,11 +45,34 @@ class FSMStateWALKAMPOV(FSMState):
         self.clip_obs_ = clip_config.get('clip_observations', 100.0)
         self.clip_act_ = clip_config.get('clip_actions', 100.0)
 
+        # 获取机器人配置管理器
+        try:
+            self.config_manager = get_robot_config_manager()
+            self.motor_num_ = self.config_manager.motor_num
+            print(f"[FSMStateWALKAMPOV] Using robot profile: {self.config_manager.robot_name}")
+            print(f"[FSMStateWALKAMPOV] Motor num from profile: {self.motor_num_}")
+        except Exception as e:
+            print(f"[FSMStateWALKAMPOV] Failed to get config manager, using defaults: {e}")
+            self.motor_num_ = policy_config.get('motor_num', 20)
+            self.config_manager = None
+
         # Initialize buffers and actions
         self.observations_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
         self.proprio_hist_buf_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
         self.last_actions_ = np.zeros(self.action_num_, dtype=np.float32)
         self.actions_ = np.zeros(self.action_num_, dtype=np.float32)
+        self._warm_start_pose = np.zeros(self.motor_num_, dtype=np.float32)
+
+        # warm_start_time from main config
+        warm_start_time = 0.3
+        if self.config_manager:
+            warm_start_time = self.config_manager.main_config.get('policy', {}).get('warm_start_time', 0.3)
+        step = (self.decimation_ if self.decimation_ else 1) * self.dt_
+        if warm_start_time > 0 and step > 0:
+            self._warm_start_steps = max(1, int(warm_start_time / step))
+        else:
+            self._warm_start_steps = 0
+        self._warmup_inference_counter = 0
 
         # Flags
         self.is_first_obs_ = True
@@ -90,92 +92,85 @@ class FSMStateWALKAMPOV(FSMState):
         self.model_path = os.path.join(current_dir, "model", policy_config["model_path"])
         self._init_openvino_session()
 
-        self.joint_seq = None
-        self.joint_pos_array_seq = None
-        self.action_scale = None
-        self.stiffness_array_seq = None
-        self.damping_array_seq = None
+        # 从策略配置获取关节列表
+        self.joint_lab = policy_config.get('joint_lab')
+        if self.joint_lab is None:
+            raise ValueError("[FSMStateWALKAMPOV] Missing 'joint_lab' in walk_amp_ov.yaml")
+        self.joint_seq = list(self.joint_lab)
+        print(f"[FSMStateWALKAMPOV] Joints from config: {len(self.joint_seq)}")
 
-        joint_names = policy_config.get('joint_names')
-        print(f"[DEBUG] joint_names from config: {joint_names}")
-        if joint_names is None:
-            raise ValueError("[FSMStateWALKAMPOV] Missing 'joint_names' in walk_amp_ov.yaml")
+        if self.config_manager:
+            # 从配置管理器获取参数（kp, kd, zero_pos）
+            params = self.config_manager.get_params_for_policy(self.joint_seq)
+            self.stiffness_array_seq = params['kp']
+            self.damping_array_seq = params['kd']
+            self.joint_pos_array_seq = params['zero_pos']
 
-        self.joint_seq = list(joint_names)
-
-        if self.action_scale_ is None:
-            raise ValueError("[FSMStateWALKAMPOV] Missing 'control.action_scale' in walk_amp_ov.yaml")
-
-        if np.isscalar(self.action_scale_):
-            self.action_scale = np.full(len(self.joint_seq), float(self.action_scale_), dtype=np.float32)
+            # action_scale可以是标量或数组
+            if np.isscalar(self.action_scale_):
+                self.action_scale = np.full(len(self.joint_seq), float(self.action_scale_), dtype=np.float32)
+            else:
+                self.action_scale = np.array(self.action_scale_[:len(self.joint_seq)], dtype=np.float32)
         else:
-            self.action_scale = np.array(self.action_scale_, dtype=np.float32)
+            # 回退：从策略配置文件读取（兼容旧方式）
+            gains_config = policy_config.get('gains', {})
+            self.stiffness_array_seq = np.array(gains_config.get('kp'), dtype=np.float32)
+            self.damping_array_seq = np.array(gains_config.get('kd'), dtype=np.float32)
 
-        if len(self.action_scale) != len(self.joint_seq):
-            raise ValueError(
-                f"[FSMStateWALKAMPOV] control.action_scale length {len(self.action_scale)} does not match joint count {len(self.joint_seq)}"
-            )
+            init_state_config = policy_config.get('init_state', {})
+            self.joint_pos_array_seq = np.array(init_state_config.get('default_joint_angles'), dtype=np.float32)
 
-        init_state_config = policy_config.get('init_state', {})
-        default_joint_angles = init_state_config.get('default_joint_angles')
-        if default_joint_angles is None:
-            raise ValueError("[FSMStateWALKAMPOV] Missing 'init_state.default_joint_angles' in walk_amp_ov.yaml")
+            if np.isscalar(self.action_scale_):
+                self.action_scale = np.full(len(self.joint_seq), float(self.action_scale_), dtype=np.float32)
+            else:
+                self.action_scale = np.array(self.action_scale_, dtype=np.float32)
 
-        self.joint_pos_array_seq = np.array(default_joint_angles, dtype=np.float32)
-        if len(self.joint_pos_array_seq) != len(self.joint_seq):
-            raise ValueError(
-                f"[FSMStateWALKAMPOV] init_state.default_joint_angles length {len(self.joint_pos_array_seq)} does not match joint count {len(self.joint_seq)}"
-            )
+        self.action_num_ = len(self.joint_seq)
+        print(f"[FSMStateWALKAMPOV] Joint count: {len(self.joint_seq)}")
 
-        gains_config = policy_config.get('gains', {})
-        kp_values = gains_config.get('kp')
-        kd_values = gains_config.get('kd')
-        if kp_values is None or kd_values is None:
-            raise ValueError("[FSMStateWALKAMPOV] Missing 'gains.kp' or 'gains.kd' in walk_amp_ov.yaml")
+        # joint_xml: 从配置获取关节顺序（与 mujoco XML 一致）
+        self.joint_xml = policy_config.get('joint_xml')
+        if self.joint_xml is None:
+            # 回退：从 config_manager 获取或使用硬编码
+            if self.config_manager:
+                self.joint_xml = self.config_manager.get_joint_order()
+                print(f"[FSMStateWALKAMPOV] Joint XML from config manager: {len(self.joint_xml)} joints")
+            else:
+                self.joint_xml = [
+                    "hip_roll_l_joint", "hip_pitch_l_joint", "hip_yaw_l_joint",
+                    "knee_pitch_l_joint", "ankle_pitch_l_joint", "ankle_roll_l_joint",
+                    "hip_roll_r_joint", "hip_pitch_r_joint", "hip_yaw_r_joint",
+                    "knee_pitch_r_joint", "ankle_pitch_r_joint", "ankle_roll_r_joint",
+                    "shoulder_pitch_l_joint", "shoulder_roll_l_joint", "shoulder_yaw_l_joint",
+                    "elbow_pitch_l_joint",
+                    "shoulder_pitch_r_joint", "shoulder_roll_r_joint", "shoulder_yaw_r_joint",
+                    "elbow_pitch_r_joint",
+                ]
+        else:
+            print(f"[FSMStateWALKAMPOV] Joint XML from config: {len(self.joint_xml)} joints")
 
-        self.stiffness_array_seq = np.array(kp_values, dtype=np.float32)
-        self.damping_array_seq = np.array(kd_values, dtype=np.float32)
-
-        if len(self.stiffness_array_seq) != len(self.joint_seq):
-            raise ValueError(
-                f"[FSMStateWALKAMPOV] gains.kp length {len(self.stiffness_array_seq)} does not match joint count {len(self.joint_seq)}"
-            )
-        if len(self.damping_array_seq) != len(self.joint_seq):
-            raise ValueError(
-                f"[FSMStateWALKAMPOV] gains.kd length {len(self.damping_array_seq)} does not match joint count {len(self.joint_seq)}"
-            )
-
-        # joint_xml: 29 joints in mujoco XML order
-        self.joint_xml = [
-            "hip_pitch_l_joint", "hip_roll_l_joint", "hip_yaw_l_joint",
-            "knee_pitch_l_joint", "ankle_pitch_l_joint", "ankle_roll_l_joint",
-            "hip_pitch_r_joint", "hip_roll_r_joint", "hip_yaw_r_joint",
-            "knee_pitch_r_joint", "ankle_pitch_r_joint", "ankle_roll_r_joint",
-            "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",
-            "shoulder_pitch_l_joint", "shoulder_roll_l_joint", "shoulder_yaw_l_joint",
-            "elbow_pitch_l_joint", "elbow_yaw_l_joint", "wrist_pitch_l_joint", "wrist_roll_l_joint",
-            "shoulder_pitch_r_joint", "shoulder_roll_r_joint", "shoulder_yaw_r_joint",
-            "elbow_pitch_r_joint", "elbow_yaw_r_joint", "wrist_pitch_r_joint", "wrist_roll_r_joint",
-        ]
-
-        # Map from lab 20-joint order to mujoco XML 29-joint order
+        # Map from lab joint order to mujoco XML 20-joint order
         self.lab2mj = []
         for name in self.joint_seq:
             if name not in self.joint_xml:
-                raise ValueError(f"[FSMStateWALKAMPOV] joint '{name}' from walk_amp_ov.yaml not found in joint_xml!")
+                print(f"[FSMStateWALKAMPOV] Warning: joint '{name}' not found in joint_xml, skipping")
+                continue
             self.lab2mj.append(self.joint_xml.index(name))
         self.lab2mj = np.array(self.lab2mj, dtype=int)
 
-        # Build 29-length arrays for mujoco
+        # Build 20-length arrays for mujoco
         n_mj = len(self.joint_xml)
         self.joint_pos_array = np.zeros(n_mj, dtype=np.float32)
         self.stiffness_array = np.zeros(n_mj, dtype=np.float32)
         self.damping_array = np.zeros(n_mj, dtype=np.float32)
 
         for lab_idx, mj_idx in enumerate(self.lab2mj):
-            self.joint_pos_array[mj_idx] = self.joint_pos_array_seq[lab_idx]
-            self.stiffness_array[mj_idx] = self.stiffness_array_seq[lab_idx]
-            self.damping_array[mj_idx] = self.damping_array_seq[lab_idx]
+            if lab_idx < len(self.joint_pos_array_seq):
+                self.joint_pos_array[mj_idx] = self.joint_pos_array_seq[lab_idx]
+            if lab_idx < len(self.stiffness_array_seq):
+                self.stiffness_array[mj_idx] = self.stiffness_array_seq[lab_idx]
+            if lab_idx < len(self.damping_array_seq):
+                self.damping_array[mj_idx] = self.damping_array_seq[lab_idx]
 
         # Set other parameters
         self.kps_lab = self.stiffness_array_seq
@@ -184,6 +179,24 @@ class FSMStateWALKAMPOV(FSMState):
         self.action_scale_lab = self.action_scale
 
         self.filtered_x_speed = 0
+
+    def _reset_internal_state(self):
+        """把所有随时间变化的内部状态重置成初始值"""
+        self.observations_.fill(0.0)
+        self.proprio_hist_buf_.fill(0.0)
+        self.last_actions_.fill(0.0)
+        self.actions_.fill(0.0)
+
+        self.is_first_obs_ = True
+        self.is_first_action_ = True
+        self.is_first_step_ = True
+
+        # 期望关节 / 期望速度 / 力矩重置为"初始姿态"
+        base = self.robot_data_.q_d_.shape[0] - self.motor_num_
+        self.robot_data_.q_d_[base:base + len(self.joint_xml)] = self.joint_pos_array
+        self.robot_data_.q_dot_d_[base:base + len(self.joint_xml)] = 0.0
+        self.robot_data_.tau_d_[base:base + len(self.joint_xml)] = 0.0
+
 
     def _init_openvino_session(self):
         """初始化 OpenVINO 推理会话"""
@@ -224,6 +237,13 @@ class FSMStateWALKAMPOV(FSMState):
         self.is_first_action_ = True
         self._warmup_inference_counter = 0
         self.timer_gait_ = 0.0
+        if self.robot_data_ is not None:
+            try:
+                self._warm_start_pose = self.robot_data_.get_joint_pos().copy()
+            except Exception:
+                self._warm_start_pose.fill(0.0)
+        else:
+            self._warm_start_pose.fill(0.0)
 
     def run(self, flag: ControlFlag):
         """运行WALKAMP状态"""
@@ -249,6 +269,12 @@ class FSMStateWALKAMPOV(FSMState):
             # 只更新 20 个受控 DOF
             target_dof_pos_mj[self.lab2mj] = target_dof_pos_lab
             commanded_pos = target_dof_pos_mj
+
+            # warm_start 平滑过渡
+            if self._warm_start_steps > 0 and self._warmup_inference_counter < self._warm_start_steps:
+                self._warmup_inference_counter += 1
+                blend = self._warmup_inference_counter / float(self._warm_start_steps)
+                commanded_pos = (1.0 - blend) * self._warm_start_pose + blend * target_dof_pos_mj
 
             base = self.robot_data_.q_d_.shape[0] - self.motor_num_
             self.robot_data_.q_d_[base:base + len(self.joint_xml)] = commanded_pos
@@ -367,6 +393,8 @@ class FSMStateWALKAMPOV(FSMState):
         """检查状态转换"""
         if flag.fsm_state_command == "gotoSTOP":
             return FSMStateName.STOP
+        elif flag.fsm_state_command == "gotoWALKAMP":
+            return FSMStateName.WALKAMP
         elif flag.fsm_state_command == "gotoWALKAMP_OV":
             return FSMStateName.WALKAMP_OV
         elif flag.fsm_state_command == "gotoZERO":

@@ -9,8 +9,7 @@ import numpy as np
 import yaml
 
 from FSM.fsm_base import FSMState, FSMStateName
-from common.joystick import ControlFlag
-from common.robot_data import RobotData
+from common import ControlFlag, RobotData
 
 
 class FSMStateBeyondZero(FSMState):

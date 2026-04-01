@@ -4,13 +4,13 @@ Python equivalent of the C++ RobotData class
 """
 import numpy as np
 from scipy.spatial.transform import Rotation
-from common.joystick import ControlFlag
+from common import ControlFlag
 import copy
 
 class RobotData:
     """机器人状态数据结构"""
 
-    def __init__(self, motor_num: int = 29, whole_joint_num: int = 35):
+    def __init__(self, motor_num: int, whole_joint_num: int):
         self.motor_num = motor_num
         self.whole_joint_num = whole_joint_num
 

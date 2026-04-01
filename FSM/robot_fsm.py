@@ -5,13 +5,12 @@ Complete FSM implementation with state management
 from typing import Dict
 from .fsm_base import RobotFSM, FSMStateName
 from policy.walk_amp.fsm_walkamp import FSMStateWALKAMP
-from policy.walk_amp.fsm_walkamp_ov import FSMStateWALKAMPOV
+from policy.walk_amp_ov.fsm_walkamp_ov import FSMStateWALKAMPOV
 from policy.zero.fsm_zero import FSMStateZero
 from policy.stop.fsm_stop import FSMStateStop
 from policy.beyond_mimic.fsm_beyond_mimic import FSMStateBeyondMimic
 from policy.beyondzero.fsm_beyondzero import FSMStateBeyondZero
-from common.robot_data import RobotData
-from common.joystick import ControlFlag
+from common import RobotData, ControlFlag
 import functools
 import time
 

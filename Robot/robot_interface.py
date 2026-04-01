@@ -1,14 +1,13 @@
 """
-Robot Interface
-Python equivalent of the C++ RobotInterface class
+Robot Interface Implementation
+机器人接口具体实现
 """
 from __future__ import annotations
 import queue
-from common.peekqueue import PeekableQueue
+from common import PeekableQueue, RobotData, ControlFlag
 import yaml
 import os
-from abc import ABC, abstractmethod
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 import numpy as np
 # ROS messages
@@ -18,17 +17,19 @@ from std_msgs.msg import String
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 import transforms3d as t3d
-from .body_id_map import BodyServoIdMap
-from .robot_data import RobotData
 import functools
 import time
 import math
 from sptlib_python import funcSPTrans as FuncSPTrans
 
-from common.joystick import ControlFlag
 from geometry_msgs.msg import TwistStamped
 from std_msgs.msg import Float64
 from FSM.fsm_base import FSMStateName
+from config.robot_config_manager import RobotConfigManager
+
+# 导入基类
+from Robot.robot_inferface_base import RobotInterface
+
 
 def timing_decorator(func):
     """
@@ -45,42 +46,25 @@ def timing_decorator(func):
     return wrapper
 
 
-class RobotInterface(ABC):
-    """机器人接口抽象基类"""
-
-    def __init__(self, robot_data: RobotData):
-        self.robot_data_ = robot_data
-
-    @abstractmethod
-    def init(self, node: Node):
-        """初始化接口"""
-        pass
-
-    @abstractmethod
-    def update_robot_data(self, flag:ControlFlag, time_passed: float):
-        """更新机器人状态"""
-        pass
-
-
-    @abstractmethod
-    def send_motor_commands(self, flag: ControlFlag):
-        """发布电机控制命令"""
-        pass
-
-
-
 class RobotInterfaceImpl(RobotInterface):
     """机器人接口具体实现"""
 
-    def __init__(self, robot_data: RobotData, config_path: str = ''):
+    def __init__(self, robot_data: RobotData, config_path: str = 'tienkung3_dex_config.yaml'):
         super().__init__(robot_data)
         self.initialized = False
         self.node = None
         self.config_path = config_path
 
-        # ID映射
-        self.id_map = BodyServoIdMap()
-        self.id_map.body_can_id_map_init()
+        # 初始化配置管理器（传入配置文件路径，自动加载profile）
+        self.config_manager = RobotConfigManager(config_path)
+
+        # 从配置管理器获取关键参数
+        self.sim = self.config_manager.sim
+        self.debug = self.config_manager.debug
+        self.floating_base_dof = self.config_manager.floating_base_dof
+
+        # ID映射（延迟到init方法中通过配置管理器动态创建）
+        self.id_map = None
 
         # 消息队列
         self.queue_leg_motor_state = PeekableQueue(maxsize=1)
@@ -89,20 +73,17 @@ class RobotInterfaceImpl(RobotInterface):
         self.queue_imu_xsens = PeekableQueue(maxsize=1)
         self.queue_walk_cmd = PeekableQueue(maxsize=1)
 
-
-        # 关节维度
-        self.floating_base_dof = 6
-        self.whole_joint_nums = self.id_map.whole_motor_nums + self.floating_base_dof
+        self.whole_joint_nums = 0
 
         # 临时变量用于优化计算
-        self.temp_q = np.empty(self.id_map.whole_motor_nums)
+        self.temp_q = None
         # 预分配另一个用于存储中间计算的临时数组
-        self._temp_zero_cnt = np.empty(self.id_map.whole_motor_nums)
+        self._temp_zero_cnt = None
 
         # 电机控制参数
-        self.motor_dir = np.ones(self.id_map.whole_motor_nums)
-        self.zero_cnt = np.zeros(self.id_map.whole_motor_nums)
-        self.zero_offset = np.zeros(self.id_map.whole_motor_nums)
+        self.motor_dir = None
+        self.zero_cnt = None
+        self.zero_offset = None
 
         # 添加标志位，用于跟踪是否是首次接收数据
         self.first_leg_data_received = False
@@ -116,9 +97,9 @@ class RobotInterfaceImpl(RobotInterface):
         # 串并联转换器
         self.fun_s2p = FuncSPTrans()
 
-        # 串并联转换相关变量
-        self.left_ankle_indices = np.array([4, 5]) + self.floating_base_dof
-        self.right_ankle_indices = np.array([10, 11]) + self.floating_base_dof
+        # 串并联转换相关变量（延迟初始化）
+        self.left_ankle_indices = None
+        self.right_ankle_indices = None
         self.q_a_p = np.zeros(4)  # 并联关节位置
         self.qdot_a_p = np.zeros(4)  # 并联关节速度
         self.tor_a_p = np.zeros(4)  # 并联关节力矩
@@ -140,54 +121,41 @@ class RobotInterfaceImpl(RobotInterface):
         # 当前机器人所处状态
         self.current_state: FSMStateName = FSMStateName.STOP
 
-    def update_param(self, current_state: FSMStateName = None):
-        """更新机器人接口"""
+    def update_fsm(self, current_state: Optional[FSMStateName] = None):
+        """更新FSM接口"""
         if current_state is not None:
             self.current_state = current_state
 
-    def load_config(self):
-        """从配置文件加载关键参数"""
-        config_path = self.config_path
-        if not os.path.exists(config_path):
-            self.node.get_logger().error(
-                f"Joint limits config file not found: {config_path}")
-            raise FileNotFoundError(
-                f"Joint limits config file not found: {config_path}")
-
-        try:
-            with open(config_path, 'r') as f:
-                config = yaml.safe_load(f)
-        except Exception as e:
-            self.node.get_logger().error(
-                f"Failed to load joint limits config from {config_path}: {e}")
-            raise RuntimeError(
-                f"Failed to load joint limits config from {config_path}: {e}")
-
-        # 读取运行模式
-        self.sim = config.get('sim')
-        self.debug = config.get('debug')
-        # 机器人接口配置
-        interface_config = config.get('robot_interface')
-        # 是否限位
-        self.clip_actions = interface_config.get('clip_actions')
-        # 加载关节限位值
-        self._load_joint_limits(interface_config)
+    def _apply_config_from_manager(self):
+        """从配置管理器应用配置到当前实例"""
+        # 运行时模式
+        self.sim = self.config_manager.sim
+        self.debug = self.config_manager.debug
+        self.floating_base_dof = self.config_manager.floating_base_dof
+        
+        # robot_interface 配置
+        self.clip_actions = self.config_manager.clip_actions
+        self.disable_joints_ = self.config_manager.disable_joints
+        
         # 加载控制状态
-        self._load_control_status(interface_config)
-        # 零位
-        self.zero_pos = np.array(interface_config.get('zero_pos'))
-        # 电流转换比例
-        self.ct_scale = np.array(interface_config.get('ct_scale'))
-        # IMU 数据偏移
-        self.xsense_roll_offset = interface_config.get(
-            'xsense_data_roll_offset')
-        # 禁用电机
-        self.disable_joints_ = interface_config.get('disable_joints', False)
-        # 脚踝Kp,Kd
-        self.ankle_kp_p = np.array(interface_config.get('ankle_kp_p'))
-        self.ankle_kd_p = np.array(interface_config.get('ankle_kd_p'))
+        self._load_control_status()
+        
+        # 电机参数
+        self.zero_pos = self.config_manager.get_zero_pos()
+        self.ct_scale = self.config_manager.get_ct_scale()
+        
+        # IMU
+        self.xsense_roll_offset = self.config_manager.xsense_roll_offset
+        
+        # 关节限位
+        self._load_joint_limits()
+        
+        # 并联脚踝参数
+        self.ankle_kp_p = self.config_manager.ankle_kp_p
+        self.ankle_kd_p = self.config_manager.ankle_kd_p
 
-    def _load_control_status(self, config: Dict[str, Any]):
+    def _load_control_status(self):
+        """从配置管理器加载控制状态"""
         # 字符串命令到枚举值的映射
         state_to_FSMState = {
             "STOP": FSMStateName.STOP,
@@ -195,20 +163,21 @@ class RobotInterfaceImpl(RobotInterface):
             "WALKAMP": FSMStateName.WALKAMP,
             "WALKAMP_OV": FSMStateName.WALKAMP_OV,
         }
-        self.waist_control_status = [state_to_FSMState[state] for state in config.get('waist_control_status')]
-        self.legs_control_status = [state_to_FSMState[state] for state in config.get('legs_control_status')]
-        self.arms_control_status = [state_to_FSMState[state] for state in config.get('arms_control_status')]
-        self.left_arm_only_status = [state_to_FSMState[state] for state in config.get('left_arm_only_status')]
-        self.right_arm_only_status = [state_to_FSMState[state] for state in config.get('right_arm_only_status')]
+        self.waist_control_status = [state_to_FSMState[state] for state in self.config_manager.waist_control_status]
+        self.legs_control_status = [state_to_FSMState[state] for state in self.config_manager.legs_control_status]
+        self.arms_control_status = [state_to_FSMState[state] for state in self.config_manager.arms_control_status]
+        self.left_arm_only_status = [state_to_FSMState[state] for state in self.config_manager.left_arm_only_status]
+        self.right_arm_only_status = [state_to_FSMState[state] for state in self.config_manager.right_arm_only_status]
 
-    def _load_joint_limits(self, config: Dict[str, Any]):
-        """从配置文件加载关节限位值"""
-        # 从配置中获取关节限位信息
-        joint_limits_config = config.get('joint_limits', None)
+    def _load_joint_limits(self):
+        """从配置管理器加载关节限位值"""
+        # 从配置管理器获取关节限位信息
+        joint_limits_config = self.config_manager.get_joint_limits()
 
-        if joint_limits_config is None:
+        if not joint_limits_config:
             error_msg = "No joint_limits section in config"
-            self.node.get_logger().error(error_msg)
+            # self.node.get_logger().error(error_msg)
+            print(error_msg)
             raise ValueError(error_msg)
         else:
             # 从配置中加载限位值
@@ -220,10 +189,39 @@ class RobotInterfaceImpl(RobotInterface):
                     }
                 else:
                     error_msg = f"Invalid limits for joint {joint_name}"
-                    self.node.get_logger().error(error_msg)
+                    print(error_msg)
+                    # self.node.get_logger().error(error_msg)
                     raise ValueError(error_msg)
 
-            self.node.get_logger().info(f"Loaded joint limits from {config}")
+            # self.node.get_logger().info(f"Loaded joint limits from config manager")
+            # print(f"Loaded joint limits from config manager: {self.joint_limits}")
+        
+        # 记录加载的限位值
+        # for joint_name, limits in self.joint_limits.items():
+        #     self.node.get_logger().debug(
+        #         f"Joint {joint_name}: [{limits['min']}, {limits['max']}]")
+        # print("-" * 30 + '关节限位值' + '-' * 30)
+        # print(self.joint_limits)
+
+    def init(self, node: Node):
+        """初始化接口"""
+        self.node = node
+        self.initialized = True
+
+        # 从配置管理器应用配置
+        self._apply_config_from_manager()
+        
+        # 动态创建ID映射（通过配置管理器加载对应的joint_id_map模块）
+        self.id_map = self.config_manager.create_id_map()
+        
+        # 初始化依赖id_map的变量
+        self.whole_joint_nums = self.id_map.whole_motor_nums + self.floating_base_dof
+        self.temp_q = np.empty(self.id_map.whole_motor_nums)
+        self._temp_zero_cnt = np.empty(self.id_map.whole_motor_nums)
+        self.motor_dir = np.ones(self.id_map.whole_motor_nums)
+        self.zero_cnt = np.zeros(self.id_map.whole_motor_nums)
+        self.zero_offset = np.zeros(self.id_map.whole_motor_nums)
+        
         # 预计算ID到限位的映射
         self.id_to_limits = {}
         for joint_name, limits in self.joint_limits.items():
@@ -231,23 +229,16 @@ class RobotInterfaceImpl(RobotInterface):
             if index >= 0:
                 motor_id = self.id_map.get_id_by_index(index)
                 self.id_to_limits[motor_id] = limits
-
-        # 记录加载的限位值
-        for joint_name, limits in self.joint_limits.items():
-            self.node.get_logger().debug(
-                f"Joint {joint_name}: [{limits['min']}, {limits['max']}]")
-        print("-" * 30 + '关节限位值' + '-' * 30)
-        print(self.joint_limits)
-
-    def init(self, node: Node):
-        """初始化接口"""
-        self.node = node
-        self.initialized = True
-
+        
+        # 初始化串并联转换关节索引（根据id_map动态计算）
+        # 注意：这里假设踝关节在关节顺序中的位置是相对于腿部的索引
+        # 左踝关节: 4 (pitch), 5 (roll) 
+        # 右踝关节: 10 (pitch), 11 (roll)
+        self.left_ankle_indices = np.array([4, 5]) + self.floating_base_dof
+        self.right_ankle_indices = np.array([10, 11]) + self.floating_base_dof
+        
         # 初始化ROS接口
         self._init_ros_interfaces()
-        # 加载配置文件
-        self.load_config()
         
         node.get_logger().info("Robot interface initialized")
 
@@ -797,6 +788,14 @@ class RobotInterfaceImpl(RobotInterface):
             self.robot_data_.walk_cmd_ = [x_command, y_command, yaw_command]
         self.robot_data_.control_flag.fsm_state_command = flag.fsm_state_command
 
-def get_robot_interface(robot_data: RobotData, config_path: str) -> RobotInterface:
-    """工厂函数，返回机器人接口实例"""
-    return RobotInterfaceImpl(robot_data, config_path)
+def get_robot_interface(robot_data: RobotData, config_path: str = 'tienkung3_dex_config.yaml') -> RobotInterface:
+    """工厂函数，返回机器人接口实例
+    
+    Args:
+        robot_data: 机器人数据对象
+        config_path: 配置文件路径，如 'tienkung3_dex_config.yaml' 或 'config/tienkung3_dex_config.yaml'
+        
+    Returns:
+        RobotInterface实例
+    """
+    return RobotInterfaceImpl(robot_data, config_path=config_path)

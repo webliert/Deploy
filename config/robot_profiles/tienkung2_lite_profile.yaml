@@ -1,0 +1,270 @@
+# ============================================================
+# tienkung2_lite Robot Profile
+# 机器人特定参数配置：关节定义、增益、限位等
+# 此文件包含与具体机器人硬件相关的参数
+# ============================================================
+
+# -------------------- 机器人基本参数 --------------------
+# 机器人名称：标识机器人型号
+robot_name: "tienkung2_lite"
+
+# 关节ID映射模块路径（已统一为Robot.joint_id_map）
+# joint_id_map_module: "Robot.joint_id_map"
+# 保留robot_name用于从统一配置中查找
+
+# 电机数量：机器人上电机的总数量
+# tienkung2_lite: 20个电机（12腿 + 8臂）
+motor_num: 20
+
+# 浮动基座自由度：描述机器人基座在空间的6个自由度
+# 包含: x/y/z平移 + roll/pitch/yaw旋转
+# 标准值: 6
+floating_base_dof: 6
+
+# -------------------- 关节定义 --------------------
+# 按身体部位分组定义关节名称
+# 用于关节分类访问（如单独控制手臂）
+joints:
+  # 腿部关节
+  legs:
+    # 左腿关节（髋关节x3 + 膝关节 + 踝关节x2 = 6个）
+    left:
+      [
+        hip_roll_l_joint,
+        hip_pitch_l_joint,
+        hip_yaw_l_joint,
+        knee_pitch_l_joint,
+        ankle_pitch_l_joint,
+        ankle_roll_l_joint,
+      ]
+    # 右腿关节
+    right:
+      [
+        hip_roll_r_joint,
+        hip_pitch_r_joint,
+        hip_yaw_r_joint,
+        knee_pitch_r_joint,
+        ankle_pitch_r_joint,
+        ankle_roll_r_joint,
+      ]
+  # 手臂关节
+  arms:
+    # 左手臂关节（肩关节x3 + 肘关节 = 4个）
+    left:
+      [
+        shoulder_pitch_l_joint,
+        shoulder_roll_l_joint,
+        shoulder_yaw_l_joint,
+        elbow_pitch_l_joint,
+      ]
+    # 右手臂关节
+    right:
+      [
+        shoulder_pitch_r_joint,
+        shoulder_roll_r_joint,
+        shoulder_yaw_r_joint,
+        elbow_pitch_r_joint,
+      ]
+  # 腰部关节：TG22无腰部电机
+  waist: []
+
+# -------------------- 关节顺序列表 --------------------
+# 关节在数组中的索引顺序
+# 重要：此顺序必须与电机控制系统的索引完全一致
+# 格式: [关节名称 # 注释/索引]
+joint_order:
+  # 左腿关节 (索引 0-5)
+  - hip_roll_l_joint # 0: 左髋横滚（侧摆）
+  - hip_pitch_l_joint # 1: 左髋俯仰（前后摆）
+  - hip_yaw_l_joint # 2: 左髋偏航（内外旋）
+  - knee_pitch_l_joint # 3: 左膝关节
+  - ankle_pitch_l_joint # 4: 左踝俯仰
+  - ankle_roll_l_joint # 5: 左踝横滚
+  # 右腿关节 (索引 6-11)
+  - hip_roll_r_joint # 6: 右髋横滚
+  - hip_pitch_r_joint # 7: 右髋俯仰
+  - hip_yaw_r_joint # 8: 右髋偏航
+  - knee_pitch_r_joint # 9: 右膝关节
+  - ankle_pitch_r_joint # 10: 右踝俯仰
+  - ankle_roll_r_joint # 11: 右踝横滚
+  # 左手臂关节 (索引 12-15)
+  - shoulder_pitch_l_joint # 12: 左肩俯仰
+  - shoulder_roll_l_joint # 13: 左肩横滚
+  - shoulder_yaw_l_joint # 14: 左肩偏航
+  - elbow_pitch_l_joint # 15: 左肘关节
+  # 右手臂关节 (索引 16-19)
+  - shoulder_pitch_r_joint # 16: 右肩俯仰
+  - shoulder_roll_r_joint # 17: 右肩横滚
+  - shoulder_yaw_r_joint # 18: 右肩偏航
+  - elbow_pitch_r_joint # 19: 右肘关节
+
+# -------------------- 零位位置 --------------------
+# 关节的初始/参考位置（与训练时的default_joint_pos一致）
+# 单位：弧度
+# 注意：零位是关节的自然中点，不是物理零点
+zero_pos:
+  # 左腿零位
+  hip_roll_l_joint: 0.0 # 髋横滚自然中位
+  hip_pitch_l_joint: -0.25 # 髋俯仰稍微弯曲
+  hip_yaw_l_joint: 0.0 # 髋偏航自然中位
+  knee_pitch_l_joint: 0.5 # 膝关节弯曲约57度
+  ankle_pitch_l_joint: -0.25 # 踝关节配合膝盖弯曲
+  ankle_roll_l_joint: 0.0 # 踝横滚自然中位
+  # 右腿零位
+  hip_roll_r_joint: 0.0
+  hip_pitch_r_joint: -0.25
+  hip_yaw_r_joint: 0.0
+  knee_pitch_r_joint: 0.5
+  ankle_pitch_r_joint: -0.25
+  ankle_roll_r_joint: 0.0
+  # 左手臂零位
+  shoulder_pitch_l_joint: 0.0 # 肩俯仰自然下垂
+  shoulder_roll_l_joint: 0.1 # 肩横滚稍微外展
+  shoulder_yaw_l_joint: 0.0 # 肩偏航自然中位
+  elbow_pitch_l_joint: -0.5 # 肘关节稍微弯曲
+  # 右手臂零位
+  shoulder_pitch_r_joint: 0.0
+  shoulder_roll_r_joint: -0.1 # 左手镜像
+  shoulder_yaw_r_joint: 0.0
+  elbow_pitch_r_joint: -0.5
+
+# -------------------- 电流转力矩系数 --------------------
+# 将电机电流转换为输出力矩的缩放系数
+# 公式: torque = current * ct_scale
+# 单位: N·m/A (或等效单位)
+ct_scale:
+  # 左腿
+  hip_roll_l_joint: 2.1
+  hip_pitch_l_joint: 2.1
+  hip_yaw_l_joint: 3.207
+  knee_pitch_l_joint: 2.673
+  ankle_pitch_l_joint: 2.6
+  ankle_roll_l_joint: 2.6
+  # 右腿
+  hip_roll_r_joint: 2.1
+  hip_pitch_r_joint: 2.1
+  hip_yaw_r_joint: 3.207
+  knee_pitch_r_joint: 2.673
+  ankle_pitch_r_joint: 2.6
+  ankle_roll_r_joint: 2.6
+  # 左手臂
+  shoulder_pitch_l_joint: 3.207
+  shoulder_roll_l_joint: 3.207
+  shoulder_yaw_l_joint: 3.207
+  elbow_pitch_l_joint: 3.207
+  # 右手臂
+  shoulder_pitch_r_joint: 3.207
+  shoulder_roll_r_joint: 3.207
+  shoulder_yaw_r_joint: 3.207
+  elbow_pitch_r_joint: 3.207
+
+# -------------------- 关节增益配置 --------------------
+# 关节位置控制的比例增益 (Kp)
+# 值越大，响应越快，但可能导致震荡
+# 单位: N·m/rad (或等效单位)
+kp:
+  # 左腿关节
+  hip_roll_l_joint: 700.0 # 髋横滚高增益以维持侧向稳定
+  hip_pitch_l_joint: 700.0 # 髋俯仰高增益以维持行走
+  hip_yaw_l_joint: 500.0 # 髋偏航中等增益
+  knee_pitch_l_joint: 700.0 # 膝关节高增益以支撑体重
+  ankle_pitch_l_joint: 15.0 # 踝关节低增益（配合并联机构）
+  ankle_roll_l_joint: 15.0
+  # 右腿关节
+  hip_roll_r_joint: 700.0
+  hip_pitch_r_joint: 700.0
+  hip_yaw_r_joint: 500.0
+  knee_pitch_r_joint: 700.0
+  ankle_pitch_r_joint: 15.0
+  ankle_roll_r_joint: 15.0
+  # 左手臂关节（增益较低以确保安全）
+  shoulder_pitch_l_joint: 60.0
+  shoulder_roll_l_joint: 20.0
+  shoulder_yaw_l_joint: 10.0
+  elbow_pitch_l_joint: 10.0
+  # 右手臂关节
+  shoulder_pitch_r_joint: 60.0
+  shoulder_roll_r_joint: 20.0
+  shoulder_yaw_r_joint: 10.0
+  elbow_pitch_r_joint: 10.0
+
+# 关节阻尼系数 (Kd)
+# 值越大，响应越慢但更稳定
+# 用于抑制震荡和过冲
+# 单位: N·m·s/rad (或等效单位)
+kd:
+  # 左腿关节
+  hip_roll_l_joint: 20.0
+  hip_pitch_l_joint: 20.0
+  hip_yaw_l_joint: 15.0
+  knee_pitch_l_joint: 10.0
+  ankle_pitch_l_joint: 1.25 # 踝关节低阻尼
+  ankle_roll_l_joint: 1.25
+  # 右腿关节
+  hip_roll_r_joint: 20.0
+  hip_pitch_r_joint: 20.0
+  hip_yaw_r_joint: 15.0
+  knee_pitch_r_joint: 10.0
+  ankle_pitch_r_joint: 1.25
+  ankle_roll_r_joint: 1.25
+  # 左手臂关节
+  shoulder_pitch_l_joint: 3.0
+  shoulder_roll_l_joint: 1.5
+  shoulder_yaw_l_joint: 1.0
+  elbow_pitch_l_joint: 1.0
+  # 右手臂关节
+  shoulder_pitch_r_joint: 3.0
+  shoulder_roll_r_joint: 1.5
+  shoulder_yaw_r_joint: 1.0
+  elbow_pitch_r_joint: 1.0
+
+# -------------------- 关节限位配置 --------------------
+# 关节运动的物理限位，防止机械碰撞
+# 单位: 弧度
+joint_limits:
+  # 左腿限位
+  hip_roll_l_joint: { min: -0.97, max: 0.97 } # 髋横滚 ±55.6°
+  hip_pitch_l_joint: { min: -1.57, max: 0.5236 } # 髋俯仰 -90° ~ +30°
+  hip_yaw_l_joint: { min: -1.0472, max: 1.0472 } # 髋偏航 ±60°
+  knee_pitch_l_joint: { min: 0.1745, max: 2.443 } # 膝关节 10° ~ 140°
+  ankle_pitch_l_joint: { min: -1.22, max: 0.5236 } # 踝俯仰 -70° ~ +30°
+  ankle_roll_l_joint: { min: -0.4363, max: 0.4363 } # 踝横滚 ±25°
+  # 右腿限位（与左腿对称）
+  hip_roll_r_joint: { min: -0.97, max: 0.97 }
+  hip_pitch_r_joint: { min: -1.57, max: 0.5236 }
+  hip_yaw_r_joint: { min: -1.0472, max: 1.0472 }
+  knee_pitch_r_joint: { min: 0.1745, max: 2.443 }
+  ankle_pitch_r_joint: { min: -1.22, max: 0.5236 }
+  ankle_roll_r_joint: { min: -0.4363, max: 0.4363 }
+  # 左手臂限位
+  shoulder_pitch_l_joint: { min: -3.14, max: 0.97 } # 肩俯仰 -180° ~ +55.6°
+  shoulder_roll_l_joint: { min: -0.08, max: 3.49 } # 肩横滚 -4.6° ~ +200°
+  shoulder_yaw_l_joint: { min: -2.96, max: 2.96 } # 肩偏航 ±169.6°
+  elbow_pitch_l_joint: { min: -2.1, max: 0.0 } # 肘关节 -120° ~ 0°
+  # 右手臂限位
+  shoulder_pitch_r_joint: { min: -3.14, max: 0.97 }
+  shoulder_roll_r_joint: { min: -3.49, max: 0.08 }
+  shoulder_yaw_r_joint: { min: -2.96, max: 2.96 }
+  elbow_pitch_r_joint: { min: -2.1, max: 0.0 }
+
+# -------------------- 脚踝并联关节参数 --------------------
+# 脚踝采用串并联混合机构时的控制参数
+# 并联模式：两个自由度耦合控制，提供更好的刚性
+ankle_parallel:
+  # 是否启用脚踝并联控制
+  enabled: false
+  # 并联关节的Kp增益（4个值：左踝俯仰、左踝横滚、右踝俯仰、右踝横滚）
+  kp_p: [15.0, 15.0, 15.0, 15.0]
+  # 并联关节的Kd阻尼
+  kd_p: [1.25, 1.25, 1.25, 1.25]
+
+# -------------------- 机器人特定信息 --------------------
+# 描述机器人硬件配置的布尔标志
+robot_specific:
+  # 是否有腰部电机
+  has_waist: false
+  # 是否有脚踝并联机构
+  has_ankle_parallel: false
+  # IMU Roll角度偏移（与主配置文件的imu.xsense_data_roll_offset对应）
+  # 此值可作为profile级别的默认值
+  imu_roll_offset: 0.0

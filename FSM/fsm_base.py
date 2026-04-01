@@ -5,8 +5,7 @@ Python equivalent of the C++ FSM system
 from abc import ABC, abstractmethod
 from enum import Enum
 
-from common.joystick import ControlFlag
-from common.robot_data import RobotData
+from common import ControlFlag, RobotData
 
 
 class FSMStateName(Enum):

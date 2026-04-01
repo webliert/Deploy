@@ -4,8 +4,8 @@ Concrete implementations of different FSM states
 """
 import numpy as np
 from FSM.fsm_base import FSMState, FSMStateName
-from common.joystick import ControlFlag
-from common.robot_data import RobotData
+from common import ControlFlag, RobotData
+from config.robot_config_manager import RobotConfigManager
 import os
 import yaml
 
@@ -16,31 +16,49 @@ class FSMStateZero(FSMState):
         super().__init__(robot_data)
         self.current_state_name = FSMStateName.ZERO
         self.q_factor_ = 0.0
+        
         # 获取包路径
         current_dir = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.join(current_dir, "config", "zero.yaml")
         with open(config_path, 'r') as f:
             policy_config = yaml.safe_load(f)
 
+        # 获取机器人配置管理器
         try:
-            self.action_num_ = policy_config["actions_size"]
-            self.motor_num_ = policy_config["motor_num"]
-            self.zero_positions_ = np.array(policy_config["zero_positions"], dtype=float)
-            self.zero_positions_height_ = np.array(policy_config["zero_positions_height"], dtype=float)
-            self.kp_pos_ = np.array(policy_config["kp_pos"], dtype=float)
-            self.kd_pos_ = np.array(policy_config["kd_pos"], dtype=float)
-            self.interp_step_ = float(policy_config["interp_step"])
-            self.interp_max_ = float(policy_config["interp_max"])
+            self.config_manager = RobotConfigManager.get_instance()
+            self.motor_num_ = self.config_manager.motor_num
+            print(f"[FSMStateZero] Using robot profile: {self.config_manager.robot_name}")
+            
+            # 获取策略使用的关节组
+            joint_groups = policy_config.get('joint_groups', ['legs.left', 'legs.right', 'arms.left', 'arms.right'])
+            joint_seq = self.config_manager.get_all_joints_in_groups(joint_groups)
+            
+            # 从配置管理器获取参数
+            params = self.config_manager.get_params_for_policy(joint_seq)
+            self.zero_positions_ = params['zero_pos']
+            self.kp_pos_ = params['kp']
+            self.kd_pos_ = params['kd']
+            
+            # 零位高度（如果有特殊配置则使用，否则与zero_positions相同）
+            self.zero_positions_height_ = self.zero_positions_.copy()
+            
         except Exception as e:
-            print(f"[FSMStateZero] YAML load error: {e}")
-            self.action_num_ = 12
-            self.motor_num_ = 29
-            self.zero_positions_ = np.zeros(self.motor_num_)
-            self.zero_positions_height_ = np.zeros(self.motor_num_)
-            self.kp_pos_ = np.zeros(self.motor_num_)
-            self.kd_pos_ = np.zeros(self.motor_num_)
-            self.interp_step_ = 0.00002
-            self.interp_max_ = 0.9
+            print(f"[FSMStateZero] Failed to get config manager, using defaults: {e}")
+            self.config_manager = None
+            self.action_num_ = policy_config.get("actions_size", 20)
+            self.motor_num_ = policy_config.get("motor_num", 20)
+            self.zero_positions_ = np.array(policy_config.get("zero_positions", [0.0] * self.motor_num_), dtype=float)
+            self.zero_positions_height_ = np.array(policy_config.get("zero_positions_height", self.zero_positions_.tolist()), dtype=float)
+            self.kp_pos_ = np.array(policy_config.get("kp_pos", [700.0] * self.motor_num_), dtype=float)
+            self.kd_pos_ = np.array(policy_config.get("kd_pos", [20.0] * self.motor_num_), dtype=float)
+        
+        # 策略控制参数
+        self.interp_step_ = float(policy_config.get("interp_step", 0.001))
+        self.interp_max_ = float(policy_config.get("interp_max", 0.9))
+        self.action_num_ = self.motor_num_
+        
+        print(f"[FSMStateZero] Motor num: {self.motor_num_}")
+        
         self.zero_positions = np.zeros(self.motor_num_)
 
     def on_enter(self):
@@ -75,6 +93,8 @@ class FSMStateZero(FSMState):
             return FSMStateName.STOP
         elif flag.fsm_state_command == "gotoWALKAMP":
             return FSMStateName.WALKAMP
+        elif flag.fsm_state_command == "gotoWALKAMP_OV":
+            return FSMStateName.WALKAMP_OV
         elif flag.fsm_state_command == "gotoZERO":
             return FSMStateName.ZERO
         elif flag.fsm_state_command == "gotoBEYONDZERO":

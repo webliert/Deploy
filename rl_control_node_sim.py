@@ -9,8 +9,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 
 class XMIGCSControlNode_sim(XMIGCSControlNode):
-    def __init__(self, debug=False):
-        super().__init__(debug)
+    def __init__(self, config_file='', debug=False):
+        super().__init__(config_file, debug)
         print("rewrite sim")
         self.robot_interface.sim = True
 

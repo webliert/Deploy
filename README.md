@@ -69,6 +69,39 @@ python3 rl_control_node_sim.py
 
 ## 控制器使用说明
 
+### 键盘控制
+
+xMIGCS支持纯Python实现的键盘控制，适用于SSH和本地环境，无需依赖外部库。
+
+#### 键盘状态映射
+
+| 按键 | 对应状态/功能  | 说明                       |
+| ---- | -------------- | -------------------------- |
+| z    | gotoZERO       | 回到零位状态               |
+| c    | gotoSTOP       | 停止状态                   |
+| m    | gotoWALKAMP    | WALKAMP策略状态 (ONNX推理) |
+| h    | gotoWALKAMP_OV | WALKAMP OpenVINO策略状态   |
+
+#### 键盘运动控制
+
+| 按键   | 功能                 |
+| ------ | -------------------- |
+| w      | 前进                 |
+| s      | 后退                 |
+| a      | 左移                 |
+| d      | 右移                 |
+| q      | 左转                 |
+| e      | 右转                 |
+| r      | 重置所有移动命令为零 |
+| 左箭头 | 增加高度             |
+| 右箭头 | 降低高度             |
+| x      | 退出程序             |
+| Ctrl+C | 紧急停止             |
+
+**注意**: WALKAMP 和 WALKAMP_OV 的区别：
+- **WALKAMP**: 使用 ONNX Runtime 进行推理
+- **WALKAMP_OV**: 使用 OpenVINO 进行推理，通常在Intel CPU上性能更优
+
 ### XBOX手柄键位映射
 ```bash
 # 仿真中启动xbox手柄
@@ -82,10 +115,10 @@ xMIGCS支持标准XBOX手柄控制，以下是详细键位映射关系：
 
 ##### 单按钮状态切换
 
-| 按钮 | 对应状态 | 功能说明 |
-|------|----------|----------|
-| X | gotoZERO | 回到零位状态 |
-| Y | gotoSTOP | 停止状态 |
+| 按钮 | 对应状态 | 功能说明     |
+| ---- | -------- | ------------ |
+| X    | gotoZERO | 回到零位状态 |
+| Y    | gotoSTOP | 停止状态     |
 
 
 
@@ -98,26 +131,26 @@ xMIGCS支持标准云卓手柄控制，开始使用前先确保所有键都回�
 ##### 单按钮状态切换
 
 | 按钮 | 对应状态 | 功能说明 |
-|------|----------|----------|
-| C | gotoSTOP | 停止状态 |
+| ---- | -------- | -------- |
+| C    | gotoSTOP | 停止状态 |
 
 ##### 组合按钮状态切换
 
-| 切入策略按钮组合| 策略内使用按键 | 对应状态 | 功能说明 |
-|------------|----------------|--------------|-------------|
-|   所有键(拨中)   |         D      | gotoZERO     | 回到零位状态  |
-|   所有键(拨中)   |         A      | gotoWALKAMP      | WALKAMP策略状态  |
-|   E(上拨)   |         A      | gotoBEYONDMIMIC   | BEYONDMIMIC策略状态   |
-|   E(上拨)   |         D      | gotoBEYONDZERO   | BEYONDMIMIC零位状态   |
-|   F(上拨)   |         无      | 手柄控制失能，只有停止键可用      | |
+| 切入策略按钮组合 | 策略内使用按键 | 对应状态                     | 功能说明            |
+| ---------------- | -------------- | ---------------------------- | ------------------- |
+| 所有键(拨中)     | D              | gotoZERO                     | 回到零位状态        |
+| 所有键(拨中)     | A              | gotoWALKAMP                  | WALKAMP策略状态     |
+| E(上拨)          | A              | gotoBEYONDMIMIC              | BEYONDMIMIC策略状态 |
+| E(上拨)          | D              | gotoBEYONDZERO               | BEYONDMIMIC零位状态 |
+| F(上拨)          | 无             | 手柄控制失能，只有停止键可用 |                     |
 
 ##### 基础运动控制
 
-| 控制方式 | 功能 |
-|----------|------|
+| 控制方式   | 功能                       |
+| ---------- | -------------------------- |
 | 左摇杆Y1轴 | 前后移动控制（正向为前进） |
-| 左摇杆X1轴 | 左右移动控制 |
-| 右摇杆X2轴 | 机身旋转控制 |
+| 左摇杆X1轴 | 左右移动控制               |
+| 右摇杆X2轴 | 机身旋转控制               |
 
 ## 项目结构
 
@@ -168,6 +201,29 @@ xMIGCS支持标准云卓手柄控制，开始使用前先确保所有键都回�
    - 导入新策略类
    - 在 _init_states() 方法中初始化状态对象
    - 在 FSMStateName 枚举中添加新状态
+
+2. **重要**: 在其他状态的 `check_transition` 方法中添加新状态的转换支持
+   
+   如果不添加，新状态将无法从其他状态切换过来！需要修改的文件包括：
+   - `policy/stop/fsm_stop.py` - STOP 状态
+   - `policy/zero/fsm_zero.py` - ZERO 状态
+   - 其他需要能够切换到新状态的策略文件
+   
+   例如，如果添加了 `MYPOLICY` 状态，需要在每个状态的 `check_transition` 方法中添加：
+   ```python
+   def check_transition(self, flag: ControlFlag) -> FSMStateName:
+       if flag.fsm_state_command == "gotoSTOP":
+           return FSMStateName.STOP
+       elif flag.fsm_state_command == "gotoZERO":
+           return FSMStateName.ZERO
+       elif flag.fsm_state_command == "gotoMYPOLICY":  # 添加这一行
+           return FSMStateName.MYPOLICY                # 添加这一行
+       # ... 其他状态 ...
+       else:
+           return None
+   ```
+   
+   **常见问题**: 如果按下切换状态的按键后没有反应，检查是否在当前状态的 `check_transition` 方法中添加了对新状态的处理。
 2. 控制器设置：云卓12手柄(默认)、键盘(需自定义实现)、XBOX手柄(自定义实现)
    - 以云卓12手柄为例，需要在common/joystick.py中添加对应的按键映射
   ```python

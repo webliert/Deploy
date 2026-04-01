@@ -18,14 +18,11 @@ from sensor_msgs.msg import Joy
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from common.joystick import JoystickHumanoid, ControlFlag
-from common.xbox_control import XBOXController
-# Local imports
-from common.robot_data import RobotData
+from common import JoystickHumanoid, ControlFlag, XBOXController, KeyboardController, RobotData
 from FSM.robot_fsm import get_robot_fsm
 from FSM.fsm_base import FSMStateName
-from common.robot_interface import get_robot_interface
-from common.stdin_keyboard_control  import KeyboardController
+from Robot.robot_interface import get_robot_interface
+from config.robot_config_manager import RobotConfigManager
 import functools
 
 def timing_decorator(func):
@@ -46,26 +43,43 @@ def timing_decorator(func):
 class XMIGCSControlNode(Node):
     """xMIGCS控制节点Python版本"""
 
-    def __init__(self, debug=False):
+    def __init__(self, config_file_name: str, debug=False):
         super().__init__('xmigcs_control_node')
+        
+        # 加载配置文件
+        self.config_file = os.path.join('.', 'config', config_file_name)
+        with open(self.config_file, 'r') as f:
+            self.config = yaml.safe_load(f)
 
         # 配置和参数
         self.debug = debug
-        self.whole_joint_num = 35
         self.pi = math.pi
         self.rpm2rps = math.pi / 30.0
-
-        self.config = {}
-
-        # 加载配置
-        self._load_config()
+        
+        # 获取机器人profile名称
+        self.robot_profile = self.config.get('robot_profile')
+        
+        # 获取控制器类型
+        self.control_tool = self.config.get('control_tool')
+        
+        # 初始化配置管理器
+        self.config_manager = RobotConfigManager(config_file_name)
+        
+        # 从配置管理器获取关键参数
+        self.motor_num = self.config_manager.motor_num
+        self.dt = self.config.get('dt')  # 从主配置文件获取dt
+        self.sim = self.config_manager.sim
+        
+        # 计算whole_joint_num (电机数量 + 浮动基自由度)
+        self.floating_base_dof = self.config_manager.floating_base_dof
+        self.whole_joint_num = self.motor_num + self.floating_base_dof
 
         # 初始化数据结构
         self._init_data_structures()
 
         # 机器人接口
         self.robot_interface = get_robot_interface(self.robot_data,
-                                                   self.config_file)
+                                                   config_path=config_file_name)
         self.robot_interface.init(self)  # 传入node实例
 
         # 机器人FSM
@@ -83,23 +97,6 @@ class XMIGCSControlNode(Node):
         # 启动控制线程
         self._start_control_thread()
 
-    def _load_config(self):
-        """加载配置文件"""
-        # 获取包路径
-        self.config_file = os.path.join('.', 'config', 'dex_config.yaml')
-
-        with open(self.config_file, 'r') as f:
-            self.config = yaml.safe_load(f)
-
-        print(self.config)
-
-        # 获取控制器类型
-        self.control_tool = self.config.get('control_tool', 'keyboard')
-        # 提取关键配置参数
-        self.motor_num = self.config.get('motor_num')
-        self.dt = self.config.get('dt')
-        self.sim = self.config.get('sim')
-
         # 检查当前用户名，如果是ubuntu则抛出异常
         import getpass
         user_name = getpass.getuser().lower()
@@ -110,7 +107,6 @@ class XMIGCSControlNode(Node):
         """初始化数据结构"""
         # 机器人数据
         self.robot_data = RobotData(self.motor_num, self.whole_joint_num)
-        self.robot_data.config_file_ = getattr(self, 'config_file', '')
 
         # joysticks 消息队列
         self.queue_joy_cmd = queue.Queue(maxsize=1)
@@ -182,7 +178,7 @@ class XMIGCSControlNode(Node):
             self.robot_fsm.run_fsm(self.robot_data.control_flag)
 
             # 发布控制命令
-            self.robot_interface.update_param(current_state=self.robot_fsm.get_current_state())
+            self.robot_interface.update_fsm(current_state=self.robot_fsm.get_current_state())
             self._send_control_commands(self.robot_data.control_flag)
 
             # 更新时间戳
@@ -222,22 +218,6 @@ class XMIGCSControlNode(Node):
             while time.perf_counter() < target_time:
                 pass
 
-    # def _wait_for_start_signal(self):
-    #     """等待启动信号"""
-    #     start_file = "/tmp/rl_start_signal"
-    #     self.get_logger().info("Waiting for start signal...")
-    #     self.get_logger().info("Run: touch /tmp/rl_start_signal")
-
-    #     # 删除可能存在的旧文件
-    #     if os.path.exists(start_file):
-    #         os.remove(start_file)
-
-    #     # 等待启动文件出现
-    #     while not os.path.exists(start_file) and rclpy.ok():
-    #         time.sleep(0.5)
-
-    #     self.get_logger().info("Start signal received, beginning RL control!")
-
     # @timing_decorator
     def _process_controller_data(self):
         # 处理控制器输入
@@ -270,7 +250,7 @@ class XMIGCSControlNode(Node):
             flag = self.xbox_controller.get_xbox_flag()
         else:
             print("[ERROR] No control tool specified")
-        print('*' * 30 + f"current flag: {flag}" + '*' * 30)
+        # print('*' * 30 + f"current flag: {flag}" + '*' * 30)
         self.control_flag = flag
 
     # @timing_decorator
@@ -325,7 +305,7 @@ def main(args=None):
     rclpy.init(args=args)
     node = None
     try:
-        node = XMIGCSControlNode(debug=False)
+        node = XMIGCSControlNode(config_file_name='config.yaml',debug=False)
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass

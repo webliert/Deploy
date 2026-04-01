@@ -13,8 +13,7 @@ try:
     import torch
 except ImportError:  # pragma: no cover - torch is optional for warm start prep
     torch = None
-from common.robot_data import RobotData
-from common.joystick import ControlFlag
+from common import RobotData, ControlFlag
 import time
 
 

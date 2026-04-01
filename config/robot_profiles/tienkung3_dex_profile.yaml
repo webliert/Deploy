@@ -1,0 +1,243 @@
+# tienkung3_dex Robot Profile - 29 Motors Configuration
+# 机器人基本参数
+robot_name: "tienkung3_dex"
+motor_num: 29 # 电机数量
+floating_base_dof: 6 # 浮动基座自由度
+
+# 关节ID映射模块路径（已统一为Robot.joint_id_map）
+# joint_id_map_module: "Robot.joint_id_map"
+# 保留robot_name用于从统一配置中查找
+
+# 关节定义（统一命名规范）
+joints:
+  legs:
+    left:
+      [l_hip_roll, l_hip_pitch, l_hip_yaw, l_knee, l_ankle_pitch, l_ankle_roll]
+    right:
+      [r_hip_roll, r_hip_pitch, r_hip_yaw, r_knee, r_ankle_pitch, r_ankle_roll]
+  arms:
+    left:
+      [
+        l_shoulder_pitch,
+        l_shoulder_roll,
+        l_shoulder_yaw,
+        l_elbow,
+        l_wrist_yaw,
+        l_wrist_pitch,
+        l_wrist_roll,
+      ]
+    right:
+      [
+        r_shoulder_pitch,
+        r_shoulder_roll,
+        r_shoulder_yaw,
+        r_elbow,
+        r_wrist_yaw,
+        r_wrist_pitch,
+        r_wrist_roll,
+      ]
+  # 腰部
+  waist: [waist_yaw, waist_roll, waist_pitch]
+
+# 关节顺序列表（用于数组索引）
+joint_order:
+  - l_hip_roll # 0
+  - l_hip_pitch # 1
+  - l_hip_yaw # 2
+  - l_knee # 3
+  - l_ankle_pitch # 4
+  - l_ankle_roll # 5
+  - r_hip_roll # 6
+  - r_hip_pitch # 7
+  - r_hip_yaw # 8
+  - r_knee # 9
+  - r_ankle_pitch # 10
+  - r_ankle_roll # 11
+  - waist_yaw # 12
+  - waist_roll # 13
+  - waist_pitch # 14
+  - l_shoulder_pitch # 15
+  - l_shoulder_roll # 16
+  - l_shoulder_yaw # 17
+  - l_elbow # 18
+  - l_wrist_yaw # 19
+  - l_wrist_pitch # 20
+  - l_wrist_roll # 21
+  - r_shoulder_pitch # 22
+  - r_shoulder_roll # 23
+  - r_shoulder_yaw # 24
+  - r_elbow # 25
+  - r_wrist_yaw # 26
+  - r_wrist_pitch # 27
+  - r_wrist_roll # 28
+
+# 零位位置
+zero_pos:
+  l_hip_roll: 0.0
+  l_hip_pitch: 0.0
+  l_hip_yaw: 0.0
+  l_knee: 0.0
+  l_ankle_pitch: 0.0
+  l_ankle_roll: 0.0
+  r_hip_roll: 0.0
+  r_hip_pitch: 0.0
+  r_hip_yaw: 0.0
+  r_knee: 0.0
+  r_ankle_pitch: 0.0
+  r_ankle_roll: 0.0
+  waist_yaw: 0.0
+  waist_roll: 0.0
+  waist_pitch: 0.0
+  l_shoulder_pitch: 0.0
+  l_shoulder_roll: 0.0
+  l_shoulder_yaw: 0.0
+  l_elbow: 0.0
+  l_wrist_yaw: 0.0
+  l_wrist_pitch: 0.0
+  l_wrist_roll: 0.0
+  r_shoulder_pitch: 0.0
+  r_shoulder_roll: 0.0
+  r_shoulder_yaw: 0.0
+  r_elbow: 0.0
+  r_wrist_yaw: 0.0
+  r_wrist_pitch: 0.0
+  r_wrist_roll: 0.0
+
+# 电流转力矩系数
+ct_scale:
+  l_hip_roll: 2.1
+  l_hip_pitch: 2.1
+  l_hip_yaw: 3.207
+  l_knee: 2.673
+  l_ankle_pitch: 2.6
+  l_ankle_roll: 2.6
+  r_hip_roll: 2.1
+  r_hip_pitch: 2.1
+  r_hip_yaw: 3.207
+  r_knee: 2.673
+  r_ankle_pitch: 2.6
+  r_ankle_roll: 2.6
+  waist_yaw: 3.207
+  waist_roll: 3.207
+  waist_pitch: 3.207
+  l_shoulder_pitch: 3.207
+  l_shoulder_roll: 2.28
+  l_shoulder_yaw: 5.89
+  l_elbow: 5.89
+  l_wrist_yaw: 3.35
+  l_wrist_pitch: 2.3
+  l_wrist_roll: 2.3
+  r_shoulder_pitch: 3.207
+  r_shoulder_roll: 2.28
+  r_shoulder_yaw: 5.89
+  r_elbow: 5.89
+  r_wrist_yaw: 3.35
+  r_wrist_pitch: 2.3
+  r_wrist_roll: 2.3
+
+# 关节增益配置
+kp:
+  l_hip_roll: 700.0
+  l_hip_pitch: 700.0
+  l_hip_yaw: 500.0
+  l_knee: 700.0
+  l_ankle_pitch: 15.0
+  l_ankle_roll: 15.0
+  r_hip_roll: 700.0
+  r_hip_pitch: 700.0
+  r_hip_yaw: 500.0
+  r_knee: 700.0
+  r_ankle_pitch: 15.0
+  r_ankle_roll: 15.0
+  waist_yaw: 700.0
+  waist_roll: 700.0
+  waist_pitch: 700.0
+  l_shoulder_pitch: 60.0
+  l_shoulder_roll: 20.0
+  l_shoulder_yaw: 10.0
+  l_elbow: 10.0
+  l_wrist_yaw: 10.0
+  l_wrist_pitch: 10.0
+  l_wrist_roll: 10.0
+  r_shoulder_pitch: 60.0
+  r_shoulder_roll: 20.0
+  r_shoulder_yaw: 10.0
+  r_elbow: 10.0
+  r_wrist_yaw: 10.0
+  r_wrist_pitch: 10.0
+  r_wrist_roll: 10.0
+
+kd:
+  l_hip_roll: 20.0
+  l_hip_pitch: 20.0
+  l_hip_yaw: 15.0
+  l_knee: 10.0
+  l_ankle_pitch: 1.25
+  l_ankle_roll: 1.25
+  r_hip_roll: 20.0
+  r_hip_pitch: 20.0
+  r_hip_yaw: 15.0
+  r_knee: 10.0
+  r_ankle_pitch: 1.25
+  r_ankle_roll: 1.25
+  waist_yaw: 20.0
+  waist_roll: 20.0
+  waist_pitch: 20.0
+  l_shoulder_pitch: 3.0
+  l_shoulder_roll: 1.5
+  l_shoulder_yaw: 1.0
+  l_elbow: 1.0
+  l_wrist_yaw: 1.0
+  l_wrist_pitch: 1.0
+  l_wrist_roll: 1.0
+  r_shoulder_pitch: 3.0
+  r_shoulder_roll: 1.5
+  r_shoulder_yaw: 1.0
+  r_elbow: 1.0
+  r_wrist_yaw: 1.0
+  r_wrist_pitch: 1.0
+  r_wrist_roll: 1.0
+
+# 关节限位配置
+joint_limits:
+  l_hip_roll: { min: -0.47, max: 2.62 }
+  l_hip_pitch: { min: -3.14, max: 3.14 }
+  l_hip_yaw: { min: -1.57, max: 4.54 }
+  l_knee: { min: -0.09, max: 2.53 }
+  l_ankle_pitch: { min: -1.22, max: 0.52 }
+  l_ankle_roll: { min: -0.52, max: 0.52 }
+  r_hip_roll: { min: -0.47, max: 2.62 }
+  r_hip_pitch: { min: -3.14, max: 3.14 }
+  r_hip_yaw: { min: -1.57, max: 4.54 }
+  r_knee: { min: -0.09, max: 2.53 }
+  r_ankle_pitch: { min: -1.22, max: 0.52 }
+  r_ankle_roll: { min: -0.52, max: 0.52 }
+  waist_yaw: { min: -2.97, max: 3.14 }
+  waist_roll: { min: -0.52, max: 0.52 }
+  waist_pitch: { min: -0.52, max: 1.05 }
+  l_shoulder_pitch: { min: -2.97, max: 2.97 }
+  l_shoulder_roll: { min: -0.26, max: 3.40 }
+  l_shoulder_yaw: { min: -2.97, max: 2.97 }
+  l_elbow: { min: -2.62, max: 0.26 }
+  l_wrist_yaw: { min: -2.97, max: 2.97 }
+  l_wrist_pitch: { min: -1.31, max: 1.40 }
+  l_wrist_roll: { min: -1.05, max: 0.79 }
+  r_shoulder_pitch: { min: -2.97, max: 2.97 }
+  r_shoulder_roll: { min: -3.40, max: 0.26 }
+  r_shoulder_yaw: { min: -2.97, max: 2.97 }
+  r_elbow: { min: -2.62, max: 0.26 }
+  r_wrist_yaw: { min: -2.97, max: 2.97 }
+  r_wrist_pitch: { min: -1.31, max: 1.40 }
+  r_wrist_roll: { min: -0.79, max: 1.05 }
+
+# 脚踝并联关节参数
+ankle_parallel:
+  enabled: true
+  kp_p: [15.0, 15.0, 15.0, 15.0]
+  kd_p: [1.25, 1.25, 1.25, 1.25]
+
+# 机器人特定信息
+robot_specific:
+  has_waist: true
+  has_ankle_parallel: true
+  imu_roll_offset: 0.0

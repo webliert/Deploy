@@ -1,31 +1,32 @@
-# Walk AMP Policy Configuration
-# 注意：机器人特定参数（kp, kd, zero_pos, ct_scale, motor_num等）从robot_profile获取
+# Walk AMP OpenVINO Policy Configuration
+# 注意：机器人特定参数（kp, kd, zero_pos等）从robot_profile获取
 
-# 策略模型路径
-model_path: "new/policy.onnx"
+# 策略特有参数
+model_path: "new/walk_lite_40700.xml"
+dt: 0.01 # 控制周期（如果与robot_profile不同，以策略为准）
 
 # MuJoCo XML 中的关节顺序（与仿真器/硬件一致）
 joint_xml:
-  - hip_roll_l_joint # 0 - #51
-  - hip_pitch_l_joint # 1 - #52
-  - hip_yaw_l_joint # 2 - #53
-  - knee_pitch_l_joint # 3 - #54
-  - ankle_pitch_l_joint # 4 - #55
-  - ankle_roll_l_joint # 5 - #56
-  - hip_roll_r_joint # 6 - #61
-  - hip_pitch_r_joint # 7 - #62
-  - hip_yaw_r_joint # 8 - #63
-  - knee_pitch_r_joint # 9 - #64
-  - ankle_pitch_r_joint # 10 - #65
-  - ankle_roll_r_joint # 11 - #66
-  - shoulder_pitch_l_joint # 12 - #11
-  - shoulder_roll_l_joint # 13 - #12
-  - shoulder_yaw_l_joint # 14 - #13
-  - elbow_pitch_l_joint # 15 - #14
-  - shoulder_pitch_r_joint # 16 - #21
-  - shoulder_roll_r_joint # 17 - #22
-  - shoulder_yaw_r_joint # 18 - #23
-  - elbow_pitch_r_joint # 19 - #24
+  - hip_roll_l_joint # 0
+  - hip_pitch_l_joint # 1
+  - hip_yaw_l_joint # 2
+  - knee_pitch_l_joint # 3
+  - ankle_pitch_l_joint # 4
+  - ankle_roll_l_joint # 5
+  - hip_roll_r_joint # 6
+  - hip_pitch_r_joint # 7
+  - hip_yaw_r_joint # 8
+  - knee_pitch_r_joint # 9
+  - ankle_pitch_r_joint # 10
+  - ankle_roll_r_joint # 11
+  - shoulder_pitch_l_joint # 12
+  - shoulder_roll_l_joint # 13
+  - shoulder_yaw_l_joint # 14
+  - elbow_pitch_l_joint # 15
+  - shoulder_pitch_r_joint # 16
+  - shoulder_roll_r_joint # 17
+  - shoulder_yaw_r_joint # 18
+  - elbow_pitch_r_joint # 19
 
 # 策略使用的关节顺序（lab 顺序）
 joint_lab:

@@ -68,41 +68,56 @@ class KeyboardController:
         
     def _load_config(self):
         """加载YAML配置文件"""
-        try:
-            config_path = os.path.join('.', "config", "dex_config.yaml")
-            
-            with open(config_path, 'r') as file:
-                config = yaml.safe_load(file)
-                
-            if not config:
-                print("[Keyboard_controller] Failed to load config file")
-                return
-                
-            keyboard_cfg = config.get("keyboard", {})
-            
-            # 加载配置参数
-            self.initial_height = keyboard_cfg.get("initial_height", 0.89)
-            self.forward_command_offset = keyboard_cfg.get("forward_command_offset", 0.0)
-            self.lateral_command_offset = keyboard_cfg.get("lateral_command_offset", 0.0)
-            self.rotation_command_offset = keyboard_cfg.get("rotation_command_offset", 0.0)
-            self.height_step = keyboard_cfg.get("height_step", 0.05)
-            self.max_forward_speed = keyboard_cfg.get("max_forward_speed", 1.0)
-            self.max_lateral_speed = keyboard_cfg.get("max_lateral_speed", 0.5)
-            self.max_rotation_speed = keyboard_cfg.get("max_rotation_speed", 0.5)
-            
-            print(f"Loaded keyboard config:")
+        # 尝试多个可能的配置文件路径
+        config_paths = [
+            os.path.join('.', "config", "dex_config.yaml"),
+            os.path.join('.', "config", "tienkung2_lite_config.yaml"),
+            os.path.join('.', "config", "tienkung3_dex_config.yaml"),
+        ]
+        
+        config_loaded = False
+        for config_path in config_paths:
+            try:
+                if os.path.exists(config_path):
+                    with open(config_path, 'r') as file:
+                        config = yaml.safe_load(file)
+                        
+                    if config and "keyboard" in config:
+                        keyboard_cfg = config.get("keyboard", {})
+                        
+                        # 加载配置参数
+                        self.initial_height = keyboard_cfg.get("initial_height", 0.89)
+                        self.forward_command_offset = keyboard_cfg.get("forward_command_offset", 0.0)
+                        self.lateral_command_offset = keyboard_cfg.get("lateral_command_offset", 0.0)
+                        self.rotation_command_offset = keyboard_cfg.get("rotation_command_offset", 0.0)
+                        self.height_step = keyboard_cfg.get("height_step", 0.05)
+                        self.max_forward_speed = keyboard_cfg.get("max_forward_speed", 1.0)
+                        self.max_lateral_speed = keyboard_cfg.get("max_lateral_speed", 0.5)
+                        self.max_rotation_speed = keyboard_cfg.get("max_rotation_speed", 0.5)
+                        
+                        print(f"Loaded keyboard config from: {config_path}")
+                        print(f"  Initial height: {self.initial_height}")
+                        print(f"  Height step: {self.height_step}")
+                        print(f"  Max forward speed: {self.max_forward_speed}")
+                        print(f"  Max lateral speed: {self.max_lateral_speed}")
+                        print(f"  Max rotation speed: {self.max_rotation_speed}")
+                        
+                        self.current_height = self.initial_height
+                        self.target_height = self.initial_height
+                        self.keyboard_flag.height_cmd = self.current_height
+                        
+                        config_loaded = True
+                        break
+            except Exception as e:
+                continue
+        
+        if not config_loaded:
+            print("[Keyboard_controller] No keyboard config found, using defaults")
             print(f"  Initial height: {self.initial_height}")
             print(f"  Height step: {self.height_step}")
             print(f"  Max forward speed: {self.max_forward_speed}")
             print(f"  Max lateral speed: {self.max_lateral_speed}")
             print(f"  Max rotation speed: {self.max_rotation_speed}")
-            
-            self.current_height = self.initial_height
-            self.target_height = self.initial_height
-            self.keyboard_flag.height_cmd = self.current_height
-            
-        except Exception as e:
-            print(f"[Keyboard_controller] YAML load error: {e}")
     
     def start(self):
         """启动键盘监听线程"""
