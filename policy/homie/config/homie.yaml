@@ -5,21 +5,21 @@
 # 推理引擎类型选择：onnx / openvino / pytorch
 # 修改此值即可切换推理引擎，代码会自动读取对应引擎的配置块
 # ============================================================
-engine_type: "pytorch"
+engine_type: "onnx"
 
 # ============================================================
 # 模型通用配置（所有引擎共享）
 # ============================================================
 model:
-  input_size: 750 # 输入大小 (observations_size * num_hist)
-  output_size: 20 # 输出大小 (action_num)
+  input_size: 372 # 输入大小 (observations_size * num_hist)
+  output_size: 12 # 输出大小 (action_num)
   dtype: "float32" # 数据类型
 
 # ============================================================
 # ONNX Runtime 配置
 # ============================================================
 onnx:
-  model_path: "onnx/policy.onnx" # ONNX 模型路径
+  model_path: "onnx/homie.onnx" # ONNX 模型路径
   intra_op_num_threads: 1 # 算子内部并行线程数
   inter_op_num_threads: 1 # 算子间并行线程数
   enable_mem_pattern: false # 禁用内存模式（固定输入大小）
@@ -49,8 +49,8 @@ control:
 
 # 观测参数
 size:
-  num_hist: 10 # 历史观测帧数
-  observations_size: 75 # 单帧观测长度
+  num_hist: 6 # 历史观测帧数
+  observations_size: 62 # 单帧观测长度
 
 # 归一化参数
 normalization:

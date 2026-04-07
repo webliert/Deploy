@@ -13,7 +13,7 @@ try:
     import torch
 except ImportError:  # pragma: no cover - torch is optional for warm start prep
     torch = None
-from common import RobotData, ControlFlag
+from common import RobotData, ControlFlag, get_robot_config_manager
 import time
 
 
@@ -163,18 +163,25 @@ class FSMStateBeyondMimic(FSMState):
             # # 根据YAML配置设置关节映射
             # self.mj2lab = np.array(config["mj2lab"], dtype=np.int32)
             
-            # 设置从序列到实验室顺序的映射
-            self.joint_xml = [
-                "hip_pitch_l_joint", "hip_roll_l_joint", "hip_yaw_l_joint",
-                "knee_pitch_l_joint", "ankle_pitch_l_joint", "ankle_roll_l_joint",
-                "hip_pitch_r_joint", "hip_roll_r_joint", "hip_yaw_r_joint",
-                "knee_pitch_r_joint", "ankle_pitch_r_joint", "ankle_roll_r_joint",
-                "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",
-                "shoulder_pitch_l_joint",
-                "elbow_pitch_l_joint",
-                "shoulder_pitch_r_joint",
-                "elbow_pitch_r_joint", 
-            ]
+            # 从 config_manager 获取 joint_xml（与 MuJoCo XML 一致）
+            try:
+                self._config_manager = get_robot_config_manager()
+                self.joint_xml = self._config_manager.get_joint_xml()
+                print(f"[FSMStateBeyondMimic] Joint XML from config manager: {len(self.joint_xml)} joints")
+            except Exception as e:
+                print(f"[FSMStateBeyondMimic] Failed to get config manager, using fallback: {e}")
+                self._config_manager = None
+                self.joint_xml = [
+                    "hip_pitch_l_joint", "hip_roll_l_joint", "hip_yaw_l_joint",
+                    "knee_pitch_l_joint", "ankle_pitch_l_joint", "ankle_roll_l_joint",
+                    "hip_pitch_r_joint", "hip_roll_r_joint", "hip_yaw_r_joint",
+                    "knee_pitch_r_joint", "ankle_pitch_r_joint", "ankle_roll_r_joint",
+                    "waist_yaw_joint", "waist_roll_joint", "waist_pitch_joint",
+                    "shoulder_pitch_l_joint",
+                    "elbow_pitch_l_joint",
+                    "shoulder_pitch_r_joint",
+                    "elbow_pitch_r_joint", 
+                ]
             # 从MjXUML顺序映射到实验室顺序
             self.mj2lab = np.array([self.joint_xml.index(joint) for joint in self.joint_seq])
 

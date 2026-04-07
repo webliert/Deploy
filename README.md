@@ -75,12 +75,13 @@ xMIGCS支持纯Python实现的键盘控制，适用于SSH和本地环境，无�
 
 #### 键盘状态映射
 
-| 按键 | 对应状态/功能  | 说明                       |
-| ---- | -------------- | -------------------------- |
-| z    | gotoZERO       | 回到零位状态               |
-| c    | gotoSTOP       | 停止状态                   |
-| m    | gotoWALKAMP    | WALKAMP策略状态 (ONNX推理) |
-| h    | gotoWALKAMP_OV | WALKAMP OpenVINO策略状态   |
+| 按键 | 对应状态/功能 | 说明            |
+| ---- | ------------- | --------------- |
+| z    | gotoZERO      | 回到零位状态    |
+| c    | gotoSTOP      | 停止状态        |
+| m    | gotoWALKAMP   | WALKAMP策略状态 |
+
+> **提示**: WALKAMP 策略支持多种推理引擎（ONNX/OpenVINO/PyTorch），可通过 `policy/walk_amp/config/walk_amp.yaml` 中的 `engine_type` 字段切换。
 
 #### 键盘运动控制
 
@@ -97,10 +98,6 @@ xMIGCS支持纯Python实现的键盘控制，适用于SSH和本地环境，无�
 | 右箭头 | 降低高度             |
 | x      | 退出程序             |
 | Ctrl+C | 紧急停止             |
-
-**注意**: WALKAMP 和 WALKAMP_OV 的区别：
-- **WALKAMP**: 使用 ONNX Runtime 进行推理
-- **WALKAMP_OV**: 使用 OpenVINO 进行推理，通常在Intel CPU上性能更优
 
 ### XBOX手柄键位映射
 ```bash

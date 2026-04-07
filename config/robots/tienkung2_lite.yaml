@@ -68,11 +68,11 @@ joints:
   # 腰部关节：TG22无腰部电机
   waist: []
 
-# -------------------- 关节顺序列表 --------------------
-# 关节在数组中的索引顺序
+# -------------------- XML/MuJoCo 关节顺序列表 --------------------
+# 关节在数组中的索引顺序（与 MuJoCo XML 中的 actuator 顺序一致）
 # 重要：此顺序必须与电机控制系统的索引完全一致
 # 格式: [关节名称 # 注释/索引]
-joint_order:
+joint_xml:
   # 左腿关节 (索引 0-5)
   - hip_roll_l_joint # 0: 左髋横滚（侧摆）
   - hip_pitch_l_joint # 1: 左髋俯仰（前后摆）
@@ -97,6 +97,30 @@ joint_order:
   - shoulder_roll_r_joint # 17: 右肩横滚
   - shoulder_yaw_r_joint # 18: 右肩偏航
   - elbow_pitch_r_joint # 19: 右肘关节
+
+# -------------------- 策略关节顺序（lab 顺序）--------------------
+# 策略/实验室使用的关节顺序（与 XML/mujoco 顺序不同）
+joint_lab:
+  - hip_roll_l_joint # lab 0
+  - hip_roll_r_joint # lab 1
+  - shoulder_pitch_l_joint # lab 2
+  - shoulder_pitch_r_joint # lab 3
+  - hip_pitch_l_joint # lab 4
+  - hip_pitch_r_joint # lab 5
+  - shoulder_roll_l_joint # lab 6
+  - shoulder_roll_r_joint # lab 7
+  - hip_yaw_l_joint # lab 8
+  - hip_yaw_r_joint # lab 9
+  - shoulder_yaw_l_joint # lab 10
+  - shoulder_yaw_r_joint # lab 11
+  - knee_pitch_l_joint # lab 12
+  - knee_pitch_r_joint # lab 13
+  - elbow_pitch_l_joint # lab 14
+  - elbow_pitch_r_joint # lab 15
+  - ankle_pitch_l_joint # lab 16
+  - ankle_pitch_r_joint # lab 17
+  - ankle_roll_l_joint # lab 18
+  - ankle_roll_r_joint # lab 19
 
 # -------------------- 零位位置 --------------------
 # 关节的初始/参考位置（与训练时的default_joint_pos一致）

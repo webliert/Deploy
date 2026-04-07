@@ -1,0 +1,124 @@
+# ============================================================
+# Deploy 统一配置文件
+# 所有配置的单一入口：机器人选择、运行参数、策略、推理引擎
+# ============================================================
+
+# -------------------- 机器人选择 --------------------
+# 配置要使用的机器人profile
+# profile文件位于: config/robots/<profile_name>.yaml
+robot:
+  profile: "tienkung2_lite"
+
+# -------------------- 运行参数 --------------------
+runtime:
+  # 控制周期（秒）
+  dt: 0.01
+
+  # 是否仿真模式
+  # true: 仿真模式（不发送真实电机命令）
+  # false: 真机模式
+  sim: true
+
+  # 是否调试模式
+  # true: 输出详细调试信息
+  # false: 正常运行模式
+  debug: false
+
+  # 控制工具选择
+  # keyboard: 键盘控制（用于仿真或测试）
+  # joystick: 云卓手柄控制（用于真机遥控）
+  # xbox: Xbox手柄控制
+  control_tool: keyboard
+
+# -------------------- 键盘控制参数 --------------------
+keyboard:
+  initial_height: 0.90
+  forward_command_offset: 0.0
+  lateral_command_offset: 0.0
+  rotation_command_offset: 0.0
+  height_step: 0.05
+  max_forward_speed: 1.5
+  max_lateral_speed: 0.5
+  max_rotation_speed: 0.8
+
+# -------------------- Xbox手柄控制参数 --------------------
+xbox:
+  initial_height: 0.89
+  forward_command_offset: 0.0
+  lateral_command_offset: 0.0
+  rotation_command_offset: 0.0
+  height_step: 0.05
+
+# -------------------- 云卓手柄控制参数 --------------------
+joystick:
+  initial_height: 0.957
+  max_height: 0.991
+  min_height: 0.791
+  x_command_offset: 0.0
+  y_command_offset: 0.0
+  yaw_command_offset: 0.0
+  max_x_plus_speed: 0.8
+  max_x_minus_speed: 0.5
+  max_y_speed: 0.5
+  max_yaw_speed: 0.8
+
+# -------------------- 策略配置 --------------------
+# 策略配置已迁移到各策略文件夹的 config/ 目录下
+# 例如: policy/walk_amp/config/walk_amp.yaml
+policies:
+  # 当前激活的策略名称（用于初始状态）
+  active: "walk_amp"
+
+  # 可用的策略列表
+  # enabled: false 的策略将不会被加载和注册到FSM
+  available:
+    stop:
+      enabled: true
+      class: "FSMStateStop"
+
+    zero:
+      enabled: true
+      class: "FSMStateZero"
+
+    walk_amp:
+      enabled: true
+      class: "FSMStateWALKAMP"
+
+    beyond_mimic:
+      enabled: false
+      class: "FSMStateBeyondMimic"
+
+    beyondzero:
+      enabled: false
+      class: "FSMStateBeyondZero"
+
+# -------------------- 推理引擎默认配置 --------------------
+# 所有策略共享的默认推理引擎配置
+# 策略可以在自己的配置中覆盖这些设置
+inference_engine:
+  # 默认引擎类型: onnx / openvino / pytorch
+  type: "onnx"
+
+  # 性能优化参数
+  intra_op_num_threads: 1
+  inter_op_num_threads: 1
+  enable_mem_pattern: false
+  enable_mem_reuse: true
+
+  # 图优化级别 (仅ONNX Runtime)
+  graph_optimization_level: "ORT_ENABLE_ALL"
+
+# -------------------- 机器人接口配置 --------------------
+robot_interface:
+  # 是否裁剪动作到关节限位范围内
+  clip_actions: false
+
+  # 是否禁用所有关节
+  disable_joints: false
+
+  # 各身体部位允许控制的FSM状态列表
+  arms_control_status: ["ZERO", "STOP", "WALKAMP"]
+  legs_control_status: []
+  waist_control_status: []
+  left_arm_only_status: []
+  right_arm_only_status: []

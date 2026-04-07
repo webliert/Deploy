@@ -22,7 +22,7 @@ from common import JoystickHumanoid, ControlFlag, XBOXController, KeyboardContro
 from FSM.robot_fsm import get_robot_fsm
 from FSM.fsm_base import FSMStateName
 from Robot.robot_interface import get_robot_interface
-from config.robot_config_manager import RobotConfigManager
+from config.deploy_config_manager import DeployConfigManager, get_deploy_config
 import functools
 
 def timing_decorator(func):
@@ -43,36 +43,33 @@ def timing_decorator(func):
 class XMIGCSControlNode(Node):
     """xMIGCS控制节点Python版本"""
 
-    def __init__(self, config_file_name: str, debug=False):
+    def __init__(self, config_file_name: str = "deploy_config.yaml", debug=False):
         super().__init__('xmigcs_control_node')
         
-        # 加载配置文件
-        self.config_file = os.path.join('.', 'config', config_file_name)
-        with open(self.config_file, 'r') as f:
-            self.config = yaml.safe_load(f)
-
-        # 配置和参数
+        # 初始化统一配置管理器
+        self.config_manager = DeployConfigManager.get_instance(config_file_name)
+        
+        # 从统一配置获取参数
         self.debug = debug
         self.pi = math.pi
         self.rpm2rps = math.pi / 30.0
         
-        # 获取机器人profile名称
-        self.robot_profile = self.config.get('robot_profile')
-        
-        # 获取控制器类型
-        self.control_tool = self.config.get('control_tool')
-        
-        # 初始化配置管理器
-        self.config_manager = RobotConfigManager(config_file_name)
+        # 获取配置
+        self.config = self.config_manager._raw_config
+        self.robot_profile = self.config_manager.config.robot_profile
+        self.control_tool = self.config_manager.config.control_tool
         
         # 从配置管理器获取关键参数
         self.motor_num = self.config_manager.motor_num
-        self.dt = self.config.get('dt')  # 从主配置文件获取dt
-        self.sim = self.config_manager.sim
+        self.dt = self.config_manager.config.dt
+        self.sim = self.config_manager.config.sim
         
         # 计算whole_joint_num (电机数量 + 浮动基自由度)
         self.floating_base_dof = self.config_manager.floating_base_dof
         self.whole_joint_num = self.motor_num + self.floating_base_dof
+        
+        print(f"[XMIGCSControlNode] Robot: {self.config_manager.robot_name}")
+        print(f"[XMIGCSControlNode] Sim: {self.sim}, Debug: {self.debug}")
 
         # 初始化数据结构
         self._init_data_structures()

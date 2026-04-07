@@ -3,8 +3,8 @@ Common Module
 提供机器人控制系统的常用工具类和函数
 """
 
-# 控制命令相关 (别名导入，兼容旧代码)
-from common.command_control.joystick import (
+# 控制命令相关
+from common.command_control.joystick_control import (
     ControlFlag,
     JoystickHumanoid,
     YUNZHUOMap,
@@ -30,8 +30,11 @@ from common.BasicFunction import (
 from common.peekqueue import PeekableQueue
 
 # 配置管理
-from config.robot_config_manager import get_robot_config_manager
+from config.deploy_config_manager import DeployConfigManager, get_deploy_config
 from common.robot_data import RobotData
+
+# 别名：get_robot_config_manager 等价于 get_deploy_config
+get_robot_config_manager = get_deploy_config
 
 __all__ = [
     # 控制命令
@@ -54,6 +57,7 @@ __all__ = [
     # 工具类
     "PeekableQueue",
     # 配置管理
-    "get_robot_config_manager",
+    "DeployConfigManager",
+    "get_deploy_config",
     "RobotData",
 ]

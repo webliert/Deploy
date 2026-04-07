@@ -13,31 +13,31 @@ import os
 import yaml
 from scipy.spatial.transform import Rotation
 
-class FSMStateWALKAMP(FSMState):
+class FSMStateHOMIE(FSMState):
     """WALKAMP策略状态实现"""
     def __init__(self, robot_data: RobotData):
         super().__init__(robot_data)
 
-        # 获取当前文件目录（policy/walk_amp/）
+        # 获取当前文件目录（policy/homie/）
         current_dir = os.path.dirname(os.path.abspath(__file__))
         
         # 从策略本地配置文件加载（实现策略与机器人配置的解耦）
-        config_path = os.path.join(current_dir, "config", "walk_amp.yaml")
+        config_path = os.path.join(current_dir, "config", "homie.yaml")
         if not os.path.exists(config_path):
-            raise FileNotFoundError(f"[FSMStateWALKAMP] Cannot find config file: {config_path}")
+            raise FileNotFoundError(f"[FSMStateHOMIE] Cannot find config file: {config_path}")
         
         with open(config_path, 'r') as f:
             policy_config = yaml.safe_load(f)
         
-        print(f"[FSMStateWALKAMP] Loaded policy config from: {config_path}")
+        print(f"[FSMStateHOMIE] Loaded policy config from: {config_path}")
 
         # 从策略配置获取参数
-        self.dt_ = policy_config.get('dt', 0.01)
+        self.dt_ = policy_config.get('dt')
 
         # Size configuration
         size_config = policy_config.get('size', {})
-        self.num_hist_ = size_config.get('num_hist', 10)
-        self.obs_size_ = size_config.get('observations_size', 75)
+        self.num_hist_ = size_config.get('num_hist')
+        self.obs_size_ = size_config.get('observations_size')
 
         # Control configuration
         control_config = policy_config.get('control', {})
@@ -56,11 +56,11 @@ class FSMStateWALKAMP(FSMState):
             self.config_manager = get_robot_config_manager()
             self.motor_num_ = self.config_manager.motor_num
             self.dt_ = self.config_manager.config.dt
-            print(f"[FSMStateWALKAMP] Using robot profile: {self.config_manager.robot_name}")
-            print(f"[FSMStateWALKAMP] Motor num from profile: {self.motor_num_}")
-            print(f"[FSMStateWALKAMP] dt from main config: {self.dt_}")
+            print(f"[FSMStateHOMIE] Using robot profile: {self.config_manager.robot_name}")
+            print(f"[FSMStateHOMIE] Motor num from profile: {self.motor_num_}")
+            print(f"[FSMStateHOMIE] dt from main config: {self.dt_}")
         except Exception as e:
-            print(f"[FSMStateWALKAMP] Failed to get config manager, using defaults: {e}")
+            print(f"[FSMStateHOMIE] Failed to get config manager, using defaults: {e}")
             self.motor_num_ = 20
             self.config_manager = None
 
@@ -83,10 +83,10 @@ class FSMStateWALKAMP(FSMState):
         if self.config_manager:
             self.joint_lab = self.config_manager.get_joint_lab()
             self.joint_seq = list(self.joint_lab)
-            print(f"[FSMStateWALKAMP] Joints from config manager: {len(self.joint_seq)}")
+            print(f"[FSMStateHOMIE] Joints from config manager: {len(self.joint_seq)}")
         else:
             # 回退：使用硬编码的关节列表
-            print("[FSMStateWALKAMP] Config manager not available, using fallback joint list")
+            print("[FSMStateHOMIE] Config manager not available, using fallback joint list")
             self.joint_lab = [
                 "hip_roll_l_joint", "hip_roll_r_joint",
                 "shoulder_pitch_l_joint", "shoulder_pitch_r_joint",
@@ -100,7 +100,7 @@ class FSMStateWALKAMP(FSMState):
                 "ankle_roll_l_joint", "ankle_roll_r_joint",
             ]
             self.joint_seq = list(self.joint_lab)
-            print(f"[FSMStateWALKAMP] Fallback joints count: {len(self.joint_seq)}")
+            print(f"[FSMStateHOMIE] Fallback joints count: {len(self.joint_seq)}")
 
         if self.config_manager:
             # 从配置管理器获取参数（kp, kd, zero_pos）
@@ -124,7 +124,7 @@ class FSMStateWALKAMP(FSMState):
             self.action_scale = np.array(self.action_scale_[:len(self.joint_seq)], dtype=np.float32)
 
         self.action_num_ = len(self.joint_seq)
-        print(f"[FSMStateWALKAMP] Joint count: {len(self.joint_seq)}")
+        print(f"[FSMStateHOMIE] Joint count: {len(self.joint_seq)}")
 
         # Initialize inference engine from config (must be after action_num_ is set)
         self._init_inference_engine(policy_config, current_dir)
@@ -148,7 +148,7 @@ class FSMStateWALKAMP(FSMState):
         # joint_xml: 从 config_manager 获取关节顺序（与 mujoco XML 一致）
         if self.config_manager:
             self.joint_xml = self.config_manager.get_joint_xml()
-            print(f"[FSMStateWALKAMP] Joint XML from config manager: {len(self.joint_xml)} joints")
+            print(f"[FSMStateHOMIE] Joint XML from config manager: {len(self.joint_xml)} joints")
         else:
             # 回退：使用硬编码的 joint_xml
             self.joint_xml = [
@@ -161,13 +161,13 @@ class FSMStateWALKAMP(FSMState):
                 "shoulder_pitch_r_joint", "shoulder_roll_r_joint", "shoulder_yaw_r_joint",
                 "elbow_pitch_r_joint",
             ]
-            print(f"[FSMStateWALKAMP] Joint XML fallback count: {len(self.joint_xml)}")
+            print(f"[FSMStateHOMIE] Joint XML fallback count: {len(self.joint_xml)}")
 
         # Map from lab joint order to mujoco XML joint order
         self.lab2mj = []
         for name in self.joint_seq:
             if name not in self.joint_xml:
-                print(f"[FSMStateWALKAMP] Warning: joint '{name}' not found in joint_xml, skipping")
+                print(f"[FSMStateHOMIE] Warning: joint '{name}' not found in joint_xml, skipping")
                 continue
             self.lab2mj.append(self.joint_xml.index(name))
         self.lab2mj = np.array(self.lab2mj, dtype=int)
@@ -231,10 +231,10 @@ class FSMStateWALKAMP(FSMState):
         # 预检查模型文件存在性
         def check_model_file(path: str) -> bool:
             if not os.path.exists(path):
-                print(f"\033[91m[FSMStateWALKAMP] ERROR: Model file does NOT exist: {path}\033[0m")
+                print(f"\033[91m[FSMStateHOMIE] ERROR: Model file does NOT exist: {path}\033[0m")
                 return False
             if os.path.getsize(path) == 0:
-                print(f"\033[91m[FSMStateWALKAMP] ERROR: Model file is empty: {path}\033[0m")
+                print(f"\033[91m[FSMStateHOMIE] ERROR: Model file is empty: {path}\033[0m")
                 return False
             return True
         
@@ -242,7 +242,7 @@ class FSMStateWALKAMP(FSMState):
             # 读取 ONNX 配置块
             onnx_cfg = policy_config.get('onnx', {})
             if not onnx_cfg:
-                raise ValueError("[FSMStateWALKAMP] Missing 'onnx' config block in walk_amp.yaml")
+                raise ValueError("[FSMStateHOMIE] Missing 'onnx' config block in homie.yaml")
             model_file = os.path.join(current_dir, "model", onnx_cfg.get('model_path', ''))
             check_model_file(model_file)
             engine_config['model_path'] = model_file
@@ -257,7 +257,7 @@ class FSMStateWALKAMP(FSMState):
             # 读取 OpenVINO 配置块
             ov_cfg = policy_config.get('openvino', {})
             if not ov_cfg:
-                raise ValueError("[FSMStateWALKAMP] Missing 'openvino' config block in walk_amp.yaml")
+                raise ValueError("[FSMStateHOMIE] Missing 'openvino' config block in homie.yaml")
             model_file = os.path.join(current_dir, "model", ov_cfg.get('model_path', ''))
             check_model_file(model_file)
             engine_config['model_path'] = model_file
@@ -268,7 +268,7 @@ class FSMStateWALKAMP(FSMState):
             # 读取 PyTorch 配置块
             pt_cfg = policy_config.get('pytorch', {})
             if not pt_cfg:
-                raise ValueError("[FSMStateWALKAMP] Missing 'pytorch' config block in walk_amp.yaml")
+                raise ValueError("[FSMStateHOMIE] Missing 'pytorch' config block in homie.yaml")
             model_file = os.path.join(current_dir, "model", pt_cfg.get('model_path', ''))
             check_model_file(model_file)
             engine_config['model_path'] = model_file
@@ -276,7 +276,7 @@ class FSMStateWALKAMP(FSMState):
             engine_config['jit_trace'] = pt_cfg.get('jit_trace', False)
             
         else:
-            raise ValueError(f"[FSMStateWALKAMP] Unsupported engine type: {engine_type}")
+            raise ValueError(f"[FSMStateHOMIE] Unsupported engine type: {engine_type}")
         
         # 合并通用配置，构建完整的引擎配置
         full_config = {
@@ -290,15 +290,15 @@ class FSMStateWALKAMP(FSMState):
         
         try:
             self.inference_engine_: InferenceEngineBase = EngineFactory.create_from_config(full_config)
-            print(f"[FSMStateWALKAMP] Inference engine loaded: {engine_type}")
+            print(f"[FSMStateHOMIE] Inference engine loaded: {engine_type}")
         except Exception as e:
-            print(f"[FSMStateWALKAMP] Failed to load inference engine: {e}")
+            print(f"[FSMStateHOMIE] Failed to load inference engine: {e}")
             self.inference_engine_ = None
 
     def on_enter(self):
         """进入WALKAMP状态"""
         self._reset_internal_state()
-        print("[FSMStateWALKAMP] enter")
+        print("[FSMStateHOMIE] enter")
         self.is_first_obs_ = True
         self.is_first_action_ = True
         self._warmup_inference_counter = 0
@@ -307,19 +307,19 @@ class FSMStateWALKAMP(FSMState):
 
         # 检查推理引擎状态
         if not hasattr(self, 'inference_engine_') or self.inference_engine_ is None:
-            print("\033[91m[FSMStateWALKAMP] WARNING: Inference engine was NOT loaded successfully!\033[0m")
-            print("\033[91m[FSMStateWALKAMP] Policy will NOT run! Check model path and engine config.\033[0m")
+            print("\033[91m[FSMStateHOMIE] WARNING: Inference engine was NOT loaded successfully!\033[0m")
+            print("\033[91m[FSMStateHOMIE] Policy will NOT run! Check model path and engine config.\033[0m")
         else:
             # 重新加载推理引擎（如果之前被unload了）
             if not self.inference_engine_.is_loaded:
                 try:
                     self.inference_engine_.load()
-                    print("[FSMStateWALKAMP] Inference engine reloaded on enter")
+                    print("[FSMStateHOMIE] Inference engine reloaded on enter")
                 except Exception as e:
-                    print(f"\033[91m[FSMStateWALKAMP] Failed to reload inference engine: {e}\033[0m")
+                    print(f"\033[91m[FSMStateHOMIE] Failed to reload inference engine: {e}\033[0m")
         
         if self.inference_engine_ and self.inference_engine_.is_loaded:
-            print(f"[FSMStateWALKAMP] ✅ Inference engine ready, running normally")
+            print(f"[FSMStateHOMIE] ✅ Inference engine ready, running normally")
 
         if self.robot_data_ is not None:
             try:
@@ -343,7 +343,7 @@ class FSMStateWALKAMP(FSMState):
 
         if int(self.robot_data_.time_now_ / self.dt_) % self.decimation_ == 0:
 
-            # print(f"[FSMStateWALKAMP] Gait phase: {gait}")
+            # print(f"[FSMStateHOMIE] Gait phase: {gait}")
             self.compute_observation(flag,gait)
             self.compute_actions()
 
@@ -455,7 +455,7 @@ class FSMStateWALKAMP(FSMState):
         if not hasattr(self, 'inference_engine_') or self.inference_engine_ is None:
             # 每5秒输出一次警告防止刷屏
             if self.robot_data_.time_now_ - self._last_engine_warn_time > 5.0:
-                print(f"\033[91m[FSMStateWALKAMP] WARNING: No inference engine! Cannot compute actions at t={self.robot_data_.time_now_:.1f}s\033[0m")
+                print(f"\033[91m[FSMStateHOMIE] WARNING: No inference engine! Cannot compute actions at t={self.robot_data_.time_now_:.1f}s\033[0m")
                 self._last_engine_warn_time = self.robot_data_.time_now_
             return
 
@@ -471,24 +471,24 @@ class FSMStateWALKAMP(FSMState):
                 self.actions_[i] = np.clip(output_data[i], -self.clip_act_, self.clip_act_)
 
             if self.is_first_action_:
-                print("[FSMStateWALKAMP] First Observation:")
+                print("[FSMStateHOMIE] First Observation:")
                 for i in range(self.obs_size_):
                     print(f"{self.observations_[i]:.6f} ", end="")
                 print()
                 self.is_first_action_ = False
 
         except Exception as e:
-            print(f"[FSMStateWALKAMP] Inference error: {e}")
+            print(f"[FSMStateHOMIE] Inference error: {e}")
 
     def on_exit(self):
         """退出WALKAMP状态"""
-        print("[FSMStateWALKAMP] exit")
+        print("[FSMStateHOMIE] exit")
         # 释放推理引擎
         if hasattr(self, 'inference_engine_') and self.inference_engine_ is not None:
             try:
                 self.inference_engine_.unload()
             except Exception as e:
-                print(f"[FSMStateWALKAMP] failed to unload inference engine: {e}")
+                print(f"[FSMStateHOMIE] failed to unload inference engine: {e}")
         # 关掉 obs 日志文件（如果存在）
         obs_log_file = getattr(self, "obs_log_file", None)
         if obs_log_file is not None:
@@ -496,9 +496,9 @@ class FSMStateWALKAMP(FSMState):
                 obs_log_file.flush()
                 obs_log_file.close()
                 obs_log_path = getattr(self, "obs_log_path", "unknown")
-                print(f"[FSMStateWALKAMP] obs log saved to {obs_log_path}")
+                print(f"[FSMStateHOMIE] obs log saved to {obs_log_path}")
             except Exception as e:
-                print(f"[FSMStateWALKAMP] failed to close obs log: {e}")
+                print(f"[FSMStateHOMIE] failed to close obs log: {e}")
             self.obs_log_file = None
 
     def check_transition(self, flag: ControlFlag) -> Optional[FSMStateName]:

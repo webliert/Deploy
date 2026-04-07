@@ -8,7 +8,7 @@ import threading
 from typing import Optional
 from dataclasses import dataclass
 from sensor_msgs.msg import Joy
-from .joystick import ControlFlag
+from .joystick_control import ControlFlag
 
 
 class XBOXFlag(ControlFlag):

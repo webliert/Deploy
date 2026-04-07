@@ -39,8 +39,8 @@ joints:
   # 腰部
   waist: [waist_yaw, waist_roll, waist_pitch]
 
-# 关节顺序列表（用于数组索引）
-joint_order:
+# XML/MuJoCo 关节顺序列表（用于数组索引）
+joint_xml:
   - l_hip_roll # 0
   - l_hip_pitch # 1
   - l_hip_yaw # 2
@@ -70,6 +70,38 @@ joint_order:
   - r_wrist_yaw # 26
   - r_wrist_pitch # 27
   - r_wrist_roll # 28
+
+# 策略关节顺序（lab 顺序）
+joint_lab:
+  - l_hip_roll # lab 0
+  - l_hip_pitch # lab 1
+  - l_hip_yaw # lab 2
+  - l_knee # lab 3
+  - l_ankle_pitch # lab 4
+  - l_ankle_roll # lab 5
+  - r_hip_roll # lab 6
+  - r_hip_pitch # lab 7
+  - r_hip_yaw # lab 8
+  - r_knee # lab 9
+  - r_ankle_pitch # lab 10
+  - r_ankle_roll # lab 11
+  - waist_yaw # lab 12
+  - waist_roll # lab 13
+  - waist_pitch # lab 14
+  - l_shoulder_pitch # lab 15
+  - l_shoulder_roll # lab 16
+  - l_shoulder_yaw # lab 17
+  - l_elbow # lab 18
+  - l_wrist_yaw # lab 19
+  - l_wrist_pitch # lab 20
+  - l_wrist_roll # lab 21
+  - r_shoulder_pitch # lab 22
+  - r_shoulder_roll # lab 23
+  - r_shoulder_yaw # lab 24
+  - r_elbow # lab 25
+  - r_wrist_yaw # lab 26
+  - r_wrist_pitch # lab 27
+  - r_wrist_roll # lab 28
 
 # 零位位置
 zero_pos:

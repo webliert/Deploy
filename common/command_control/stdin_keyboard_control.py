@@ -10,7 +10,7 @@ import tty
 import os
 import yaml
 from typing import Optional
-from .joystick import ControlFlag
+from .joystick_control import ControlFlag
 import signal
 
 class KeyboardFlag(ControlFlag):  # 继承ControlFlag

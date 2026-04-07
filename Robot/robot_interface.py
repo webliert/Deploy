@@ -25,7 +25,7 @@ from sptlib_python import funcSPTrans as FuncSPTrans
 from geometry_msgs.msg import TwistStamped
 from std_msgs.msg import Float64
 from FSM.fsm_base import FSMStateName
-from config.robot_config_manager import RobotConfigManager
+from config.deploy_config_manager import DeployConfigManager
 
 # 导入基类
 from Robot.robot_inferface_base import RobotInterface
@@ -56,11 +56,11 @@ class RobotInterfaceImpl(RobotInterface):
         self.config_path = config_path
 
         # 初始化配置管理器（传入配置文件路径，自动加载profile）
-        self.config_manager = RobotConfigManager(config_path)
+        self.config_manager = DeployConfigManager.get_instance(config_path)
 
         # 从配置管理器获取关键参数
-        self.sim = self.config_manager.sim
-        self.debug = self.config_manager.debug
+        self.sim = self.config_manager.config.sim
+        self.debug = self.config_manager.config.debug
         self.floating_base_dof = self.config_manager.floating_base_dof
 
         # ID映射（延迟到init方法中通过配置管理器动态创建）
@@ -129,13 +129,13 @@ class RobotInterfaceImpl(RobotInterface):
     def _apply_config_from_manager(self):
         """从配置管理器应用配置到当前实例"""
         # 运行时模式
-        self.sim = self.config_manager.sim
-        self.debug = self.config_manager.debug
+        self.sim = self.config_manager.config.sim
+        self.debug = self.config_manager.config.debug
         self.floating_base_dof = self.config_manager.floating_base_dof
         
         # robot_interface 配置
-        self.clip_actions = self.config_manager.clip_actions
-        self.disable_joints_ = self.config_manager.disable_joints
+        self.clip_actions = self.config_manager.config.clip_actions
+        self.disable_joints_ = self.config_manager.config.disable_joints
         
         # 加载控制状态
         self._load_control_status()
@@ -145,14 +145,14 @@ class RobotInterfaceImpl(RobotInterface):
         self.ct_scale = self.config_manager.get_ct_scale()
         
         # IMU
-        self.xsense_roll_offset = self.config_manager.xsense_roll_offset
+        self.xsense_roll_offset = self.config_manager.config.xsense_roll_offset
         
         # 关节限位
         self._load_joint_limits()
         
         # 并联脚踝参数
-        self.ankle_kp_p = self.config_manager.ankle_kp_p
-        self.ankle_kd_p = self.config_manager.ankle_kd_p
+        self.ankle_kp_p = self.config_manager.get_ankle_parallel_params()['kp_p']
+        self.ankle_kd_p = self.config_manager.get_ankle_parallel_params()['kd_p']
 
     def _load_control_status(self):
         """从配置管理器加载控制状态"""
@@ -161,13 +161,13 @@ class RobotInterfaceImpl(RobotInterface):
             "STOP": FSMStateName.STOP,
             "ZERO": FSMStateName.ZERO,
             "WALKAMP": FSMStateName.WALKAMP,
-            "WALKAMP_OV": FSMStateName.WALKAMP_OV,
         }
-        self.waist_control_status = [state_to_FSMState[state] for state in self.config_manager.waist_control_status]
-        self.legs_control_status = [state_to_FSMState[state] for state in self.config_manager.legs_control_status]
-        self.arms_control_status = [state_to_FSMState[state] for state in self.config_manager.arms_control_status]
-        self.left_arm_only_status = [state_to_FSMState[state] for state in self.config_manager.left_arm_only_status]
-        self.right_arm_only_status = [state_to_FSMState[state] for state in self.config_manager.right_arm_only_status]
+        ri_config = self.config_manager.config.robot_interface_config
+        self.waist_control_status = [state_to_FSMState.get(state, state) for state in ri_config.get("waist_control_status", [])]
+        self.legs_control_status = [state_to_FSMState.get(state, state) for state in ri_config.get("legs_control_status", [])]
+        self.arms_control_status = [state_to_FSMState.get(state, state) for state in ri_config.get("arms_control_status", [])]
+        self.left_arm_only_status = [state_to_FSMState.get(state, state) for state in ri_config.get("left_arm_only_status", [])]
+        self.right_arm_only_status = [state_to_FSMState.get(state, state) for state in ri_config.get("right_arm_only_status", [])]
 
     def _load_joint_limits(self):
         """从配置管理器加载关节限位值"""

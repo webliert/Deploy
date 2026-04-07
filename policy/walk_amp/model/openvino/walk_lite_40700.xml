@@ -2,9 +2,10 @@
 <net name="Model0" version="11">
 	<layers>
 		<layer id="0" name="x.1" type="Parameter" version="opset1">
-			<data shape="?" element_type="f32" />
+			<data shape="?,?" element_type="f32" />
 			<output>
 				<port id="0" precision="FP32" names="x.1">
+					<dim>-1</dim>
 					<dim>-1</dim>
 				</port>
 			</output>
@@ -23,6 +24,7 @@
 			<input>
 				<port id="0" precision="FP32">
 					<dim>-1</dim>
+					<dim>-1</dim>
 				</port>
 				<port id="1" precision="FP32">
 					<dim>512</dim>
@@ -31,14 +33,16 @@
 			</input>
 			<output>
 				<port id="2" precision="FP32">
+					<dim>-1</dim>
 					<dim>512</dim>
 				</port>
 			</output>
 		</layer>
-		<layer id="3" name="self.actor.0.bias" type="Const" version="opset1">
-			<data element_type="f32" shape="512" offset="1536000" size="2048" />
+		<layer id="3" name="Constant_1929" type="Const" version="opset1">
+			<data element_type="f32" shape="1, 512" offset="1536000" size="2048" />
 			<output>
-				<port id="0" precision="FP32" names="self.actor.0.bias">
+				<port id="0" precision="FP32">
+					<dim>1</dim>
 					<dim>512</dim>
 				</port>
 			</output>
@@ -47,14 +51,17 @@
 			<data auto_broadcast="numpy" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>512</dim>
 				</port>
 				<port id="1" precision="FP32">
+					<dim>1</dim>
 					<dim>512</dim>
 				</port>
 			</input>
 			<output>
 				<port id="2" precision="FP32" names="17,input0.1">
+					<dim>-1</dim>
 					<dim>512</dim>
 				</port>
 			</output>
@@ -63,11 +70,13 @@
 			<data alpha="1" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>512</dim>
 				</port>
 			</input>
 			<output>
 				<port id="1" precision="FP32" names="18,input1.1">
+					<dim>-1</dim>
 					<dim>512</dim>
 				</port>
 			</output>
@@ -85,6 +94,7 @@
 			<data transpose_a="false" transpose_b="true" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>512</dim>
 				</port>
 				<port id="1" precision="FP32">
@@ -94,14 +104,16 @@
 			</input>
 			<output>
 				<port id="2" precision="FP32">
+					<dim>-1</dim>
 					<dim>256</dim>
 				</port>
 			</output>
 		</layer>
-		<layer id="8" name="self.actor.2.bias" type="Const" version="opset1">
-			<data element_type="f32" shape="256" offset="2062336" size="1024" />
+		<layer id="8" name="Constant_1930" type="Const" version="opset1">
+			<data element_type="f32" shape="1, 256" offset="2062336" size="1024" />
 			<output>
-				<port id="0" precision="FP32" names="self.actor.2.bias">
+				<port id="0" precision="FP32">
+					<dim>1</dim>
 					<dim>256</dim>
 				</port>
 			</output>
@@ -110,14 +122,17 @@
 			<data auto_broadcast="numpy" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>256</dim>
 				</port>
 				<port id="1" precision="FP32">
+					<dim>1</dim>
 					<dim>256</dim>
 				</port>
 			</input>
 			<output>
 				<port id="2" precision="FP32" names="21,input2.1">
+					<dim>-1</dim>
 					<dim>256</dim>
 				</port>
 			</output>
@@ -126,11 +141,13 @@
 			<data alpha="1" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>256</dim>
 				</port>
 			</input>
 			<output>
 				<port id="1" precision="FP32" names="22,input3.1">
+					<dim>-1</dim>
 					<dim>256</dim>
 				</port>
 			</output>
@@ -148,6 +165,7 @@
 			<data transpose_a="false" transpose_b="true" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>256</dim>
 				</port>
 				<port id="1" precision="FP32">
@@ -157,14 +175,16 @@
 			</input>
 			<output>
 				<port id="2" precision="FP32">
+					<dim>-1</dim>
 					<dim>128</dim>
 				</port>
 			</output>
 		</layer>
-		<layer id="13" name="self.actor.4.bias" type="Const" version="opset1">
-			<data element_type="f32" shape="128" offset="2194432" size="512" />
+		<layer id="13" name="Constant_1931" type="Const" version="opset1">
+			<data element_type="f32" shape="1, 128" offset="2194432" size="512" />
 			<output>
-				<port id="0" precision="FP32" names="self.actor.4.bias">
+				<port id="0" precision="FP32">
+					<dim>1</dim>
 					<dim>128</dim>
 				</port>
 			</output>
@@ -173,14 +193,17 @@
 			<data auto_broadcast="numpy" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>128</dim>
 				</port>
 				<port id="1" precision="FP32">
+					<dim>1</dim>
 					<dim>128</dim>
 				</port>
 			</input>
 			<output>
 				<port id="2" precision="FP32" names="25,input4.1">
+					<dim>-1</dim>
 					<dim>128</dim>
 				</port>
 			</output>
@@ -189,11 +212,13 @@
 			<data alpha="1" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>128</dim>
 				</port>
 			</input>
 			<output>
 				<port id="1" precision="FP32" names="26,input5.1">
+					<dim>-1</dim>
 					<dim>128</dim>
 				</port>
 			</output>
@@ -211,6 +236,7 @@
 			<data transpose_a="false" transpose_b="true" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>128</dim>
 				</port>
 				<port id="1" precision="FP32">
@@ -220,14 +246,16 @@
 			</input>
 			<output>
 				<port id="2" precision="FP32">
+					<dim>-1</dim>
 					<dim>20</dim>
 				</port>
 			</output>
 		</layer>
-		<layer id="18" name="self.actor.6.bias" type="Const" version="opset1">
-			<data element_type="f32" shape="20" offset="2205184" size="80" />
+		<layer id="18" name="Constant_1932" type="Const" version="opset1">
+			<data element_type="f32" shape="1, 20" offset="2205184" size="80" />
 			<output>
-				<port id="0" precision="FP32" names="self.actor.6.bias">
+				<port id="0" precision="FP32">
+					<dim>1</dim>
 					<dim>20</dim>
 				</port>
 			</output>
@@ -236,14 +264,17 @@
 			<data auto_broadcast="numpy" />
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>20</dim>
 				</port>
 				<port id="1" precision="FP32">
+					<dim>1</dim>
 					<dim>20</dim>
 				</port>
 			</input>
 			<output>
 				<port id="2" precision="FP32">
+					<dim>-1</dim>
 					<dim>20</dim>
 				</port>
 			</output>
@@ -251,6 +282,7 @@
 		<layer id="20" name="Result_47" type="Result" version="opset1">
 			<input>
 				<port id="0" precision="FP32">
+					<dim>-1</dim>
 					<dim>20</dim>
 				</port>
 			</input>

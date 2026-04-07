@@ -12,8 +12,9 @@ class FSMStateName(Enum):
     """FSM状态枚举"""
     STOP = 0      # 停止状态
     ZERO = 1      # 零位状态
-    WALKAMP = 2   # WALKAMP策略状态
-    WALKAMP_OV = 3  # WALKAMP OpenVINO策略状态
+    WALKAMP = 2   # WALKAMP策略状态（支持ONNX/OpenVINO/PyTorch，由配置文件决定）
+    BEYOND_MIMIC = 4  # Beyond Mimic策略状态
+    BEYONDZERO = 5  # Beyond Zero策略状态
 
 class FSMState(ABC):
     """FSM状态抽象基类"""
