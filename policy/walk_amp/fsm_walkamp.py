@@ -451,6 +451,7 @@ class FSMStateWALKAMP(FSMState):
         b = np.cross(q_v, v) * (2.0 * q_w)
         c = q_v * (2.0 * np.dot(q_v, v))
         return a - b + c
+    
     def compute_actions(self):
         if not hasattr(self, 'inference_engine_') or self.inference_engine_ is None:
             # 每5秒输出一次警告防止刷屏
@@ -473,7 +474,7 @@ class FSMStateWALKAMP(FSMState):
             if self.is_first_action_:
                 print("[FSMStateWALKAMP] First Observation:")
                 for i in range(self.obs_size_):
-                    print(f"{self.observations_[i]:.6f} ", end="")
+                    print(f"[FSMStateWALKAMP] the {i}th observation is {self.observations_[i]:.6f} ", end="")
                 print()
                 self.is_first_action_ = False
 
@@ -509,5 +510,7 @@ class FSMStateWALKAMP(FSMState):
             return FSMStateName.WALKAMP
         elif flag.fsm_state_command == "gotoZERO":
             return FSMStateName.ZERO
+        elif flag.fsm_state_command == "gotoHOMIE":
+            return FSMStateName.HOMIE
         else:
             return None  # 无状态转换

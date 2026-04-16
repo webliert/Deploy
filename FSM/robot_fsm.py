@@ -60,6 +60,7 @@ class RobotFSMImpl(RobotFSM):
             "walk_amp": ("WALKAMP", "policy.walk_amp.fsm_walkamp", "FSMStateWALKAMP"),
             "beyond_mimic": ("BEYOND_MIMIC", "policy.beyond_mimic.fsm_beyond_mimic", "FSMStateBeyondMimic"),
             "beyondzero": ("BEYONDZERO", "policy.beyondzero.fsm_beyondzero", "FSMStateBeyondZero"),
+            "homie": ("HOMIE", "policy.homie.fsm_homie", "FSMStateHOMIE"),
         }
         
         try:

@@ -15,6 +15,7 @@ class FSMStateName(Enum):
     WALKAMP = 2   # WALKAMP策略状态（支持ONNX/OpenVINO/PyTorch，由配置文件决定）
     BEYOND_MIMIC = 4  # Beyond Mimic策略状态
     BEYONDZERO = 5  # Beyond Zero策略状态
+    HOMIE = 6     # HOMIE策略状态（Actor-Critic，62维观测，12维腿部动作）
 
 class FSMState(ABC):
     """FSM状态抽象基类"""

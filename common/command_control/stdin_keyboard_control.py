@@ -58,6 +58,7 @@ class KeyboardController:
         print("  z - Goto ZERO state")
         print("  c - Goto STOP state")
         print("  m - Goto WALKAMP state")
+        print("  h - Goto HOMIE state")
         print("  v - Goto BEYONDMIMIC state")
         print("  Left/Right arrows - Adjust height")
         print("  w/a/s/d - Movement controls")
@@ -344,11 +345,10 @@ class KeyboardController:
         self._handle_ctrl_c()
 
     def _on_h_key(self):
-        """处理h键（备用功能）"""
-        print("h key pressed - available for additional functions")
+        """处理h键 - 切换到HOMIE状态"""
         with self.data_mutex:
-            self.keyboard_flag.fsm_state_command = "gotoWALKAMP_OV"
-            print("Command: gotoWALKAMP_OV")
+            self.keyboard_flag.fsm_state_command = "gotoHOMIE"
+            print("Command: gotoHOMIE")
 
     def _on_g_key(self):
         """处理g键（备用功能）"""

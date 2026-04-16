@@ -7,21 +7,27 @@ import numpy as np
 
 from typing import Optional
 from FSM.fsm_base import FSMState, FSMStateName
-from common import ControlFlag, RobotData, clip_vector, gait_phase, get_robot_config_manager
+from common import ControlFlag, RobotData, get_robot_config_manager
 from inference_engine import EngineFactory, EngineType, InferenceEngineBase
+from config.deploy_config_manager import DeployConfigManager
 import os
 import yaml
 from scipy.spatial.transform import Rotation
 
 class FSMStateHOMIE(FSMState):
-    """WALKAMP策略状态实现"""
+    """HOMIE策略状态实现 - Actor-Critic网络推理
+    
+    训练配置:
+        - 观测维度: 62 (commands(3)*scale + height_cmd(1) + ang_vel(3) + gravity(3) + dof_pos(20) + dof_vel(20) + actions(12))
+        - 动作维度: 12 (仅腿部关节)
+        - 历史长度: 6
+        - commands_scale: [2.0, 2.0, 0.5]
+    """
     def __init__(self, robot_data: RobotData):
         super().__init__(robot_data)
 
-        # 获取当前文件目录（policy/homie/）
         current_dir = os.path.dirname(os.path.abspath(__file__))
         
-        # 从策略本地配置文件加载（实现策略与机器人配置的解耦）
         config_path = os.path.join(current_dir, "config", "homie.yaml")
         if not os.path.exists(config_path):
             raise FileNotFoundError(f"[FSMStateHOMIE] Cannot find config file: {config_path}")
@@ -29,114 +35,128 @@ class FSMStateHOMIE(FSMState):
         with open(config_path, 'r') as f:
             policy_config = yaml.safe_load(f)
         
-        print(f"[FSMStateHOMIE] Loaded policy config from: {config_path}")
+        print(f"[FSMStateHOMIE] ===============================================")
+        print(f"[FSMStateHOMIE] ============ __init__ Start ===========")
+        print(f"[FSMStateHOMIE] ===============================================")
 
-        # 从策略配置获取参数
-        self.dt_ = policy_config.get('dt')
+        print(f"\n[FSMStateHOMIE] Config file loaded from: {config_path}")
 
-        # Size configuration
+        # ========== Size Config ==========
         size_config = policy_config.get('size', {})
-        self.num_hist_ = size_config.get('num_hist')
-        self.obs_size_ = size_config.get('observations_size')
+        self.num_hist_ = size_config.get('num_hist', 6)
+        self.obs_size_ = size_config.get('observations_size', 62)
+        print(f"\n[FSMStateHOMIE] [Size Config]")
+        print(f"  - num_hist_: {self.num_hist_}")
+        print(f"  - obs_size_: {self.obs_size_}")
 
-        # Control configuration
+        # ========== Control Config ==========
         control_config = policy_config.get('control', {})
         self.action_scale_ = control_config.get('action_scale', 0.25)
         self.decimation_ = control_config.get('decimation', 1)
+        print(f"\n[FSMStateHOMIE] [Control Config]")
+        print(f"  - action_scale_: {self.action_scale_}")
+        print(f"  - decimation_: {self.decimation_}")
 
-        # Normalization configuration
+        # ========== Normalization Config ==========
         norm_config = policy_config.get('normalization', {})
         clip_config = norm_config.get('clip_scales', {})
-
         self.clip_obs_ = clip_config.get('clip_observations', 100.0)
         self.clip_act_ = clip_config.get('clip_actions', 100.0)
+        print(f"\n[FSMStateHOMIE] [Normalization Config]")
+        print(f"  - clip_obs_: {self.clip_obs_}")
+        print(f"  - clip_act_: {self.clip_act_}")
+        
+        # ========== Special Config (from yaml) ==========
+        special_config = policy_config.get('special', {})
+        yaml_kp = special_config.get('kp', np.zeros(20, dtype=np.float32))
+        yaml_kd = special_config.get('kd', np.zeros(20, dtype=np.float32))
+        yaml_zero_pos = special_config.get('zero_pos', np.zeros(20, dtype=np.float32))
+        print(f"\n[FSMStateHOMIE] [Special Config from yaml]")
+        print(f"  - yaml_kp (from special.kp): {yaml_kp}")
+        print(f"  - yaml_kd (from special.kd): {yaml_kd}")
+        print(f"  - yaml_zero_pos (from special.zero_pos): {yaml_zero_pos}")
 
-        # 获取机器人配置管理器
+        # 观测缩放因子（与训练配置一致）
+        self.commands_scale = np.array([2.0, 2.0, 0.5], dtype=np.float32)
+        self.ang_vel_scale_ = 0.5   # obs_scales.ang_vel
+        self.dof_vel_scale_ = 0.05   # obs_scales.dof_vel
+        self.dof_pos_scale_ = 1.0   # obs_scales.dof_pos
+        print(f"\n[FSMStateHOMIE] [Observation Scale]")
+        print(f"  - commands_scale: {self.commands_scale}")
+        print(f"  - ang_vel_scale_: {self.ang_vel_scale_}")
+        print(f"  - dof_vel_scale_: {self.dof_vel_scale_}")
+        print(f"  - dof_pos_scale_: {self.dof_pos_scale_}")
+
+        # ========== Robot Config Manager ==========
+        print(f"\n[FSMStateHOMIE] [Robot Config Manager]")
         try:
             self.config_manager = get_robot_config_manager()
+            print(f"  - config_manager acquired successfully")
+        except Exception as e:
+            print(f"  - Failed to get config manager: {e}")
+        
+        if self.config_manager:
             self.motor_num_ = self.config_manager.motor_num
             self.dt_ = self.config_manager.config.dt
-            print(f"[FSMStateHOMIE] Using robot profile: {self.config_manager.robot_name}")
-            print(f"[FSMStateHOMIE] Motor num from profile: {self.motor_num_}")
-            print(f"[FSMStateHOMIE] dt from main config: {self.dt_}")
-        except Exception as e:
-            print(f"[FSMStateHOMIE] Failed to get config manager, using defaults: {e}")
-            self.motor_num_ = 20
-            self.config_manager = None
-
-
-        # Flags
-        self.is_first_obs_ = True
-        self.is_first_action_ = True
-        self.timer_gait_ = 0.0
-
-        # gait parameters
-        self.gait_cycle = 0.85
-        self.left_phase_ratio = 0.38
-        self.right_phase_ratio = 0.38
-        self.left_theta_offset = 0.38
-        self.right_theta_offset = 0.88
-
-        self.is_first_step_ = True
-
-        # 从 config_manager 获取关节列表，如果不可用则使用回退逻辑
-        if self.config_manager:
-            self.joint_lab = self.config_manager.get_joint_lab()
-            self.joint_seq = list(self.joint_lab)
-            print(f"[FSMStateHOMIE] Joints from config manager: {len(self.joint_seq)}")
+            self.joint_xml = self.config_manager.get_joint_xml()
+            n_mj = len(self.joint_xml)
+            
+            # NOTE: 使用从yaml读取的kp/kd/zero_pos，而不是零数组
+            # 如果yaml中没有配置，则使用零数组
+            self.stiffness_array = np.array(yaml_kp, dtype=np.float32) if len(yaml_kp) >= n_mj else np.zeros(n_mj, dtype=np.float32)
+            self.damping_array = np.array(yaml_kd, dtype=np.float32) if len(yaml_kd) >= n_mj else np.zeros(n_mj, dtype=np.float32)
+            self.default_joint_pos = np.array(yaml_zero_pos, dtype=np.float32) if len(yaml_zero_pos) >= n_mj else np.zeros(n_mj, dtype=np.float32)
+            
+            print(f"  - robot_name: {self.config_manager.robot_name}")
+            print(f"  - motor_num_: {self.motor_num_}")
+            print(f"  - dt_: {self.dt_}")
+            print(f"  - joint_xml ({len(self.joint_xml)} joints): {self.joint_xml}")
+            print(f"  - stiffness_array shape: {self.stiffness_array.shape}, values: {self.stiffness_array}")
+            print(f"  - damping_array shape: {self.damping_array.shape}, values: {self.damping_array}")
+            print(f"  - default_joint_pos shape: {self.default_joint_pos.shape}, values: {self.default_joint_pos}")
         else:
-            # 回退：使用硬编码的关节列表
-            print("[FSMStateHOMIE] Config manager not available, using fallback joint list")
-            self.joint_lab = [
-                "hip_roll_l_joint", "hip_roll_r_joint",
-                "shoulder_pitch_l_joint", "shoulder_pitch_r_joint",
-                "hip_pitch_l_joint", "hip_pitch_r_joint",
-                "shoulder_roll_l_joint", "shoulder_roll_r_joint",
-                "hip_yaw_l_joint", "hip_yaw_r_joint",
-                "shoulder_yaw_l_joint", "shoulder_yaw_r_joint",
-                "knee_pitch_l_joint", "knee_pitch_r_joint",
-                "elbow_pitch_l_joint", "elbow_pitch_r_joint",
-                "ankle_pitch_l_joint", "ankle_pitch_r_joint",
-                "ankle_roll_l_joint", "ankle_roll_r_joint",
-            ]
-            self.joint_seq = list(self.joint_lab)
-            print(f"[FSMStateHOMIE] Fallback joints count: {len(self.joint_seq)}")
+            # 没有config_manager时使用yaml默认值
+            self.stiffness_array = np.array(yaml_kp, dtype=np.float32)
+            self.damping_array = np.array(yaml_kd, dtype=np.float32)
+            self.default_joint_pos = np.array(yaml_zero_pos, dtype=np.float32)
+            self.motor_num_ = len(self.stiffness_array)
+            self.dt_ = 0.01
+            self.joint_xml = [f"joint_{i}" for i in range(self.motor_num_)]
+            print(f"  - Using yaml defaults (no config_manager)")
+            print(f"  - motor_num_: {self.motor_num_}")
+            print(f"  - dt_: {self.dt_}")
 
-        if self.config_manager:
-            # 从配置管理器获取参数（kp, kd, zero_pos）
-            params = self.config_manager.get_robot_params_for_policy(self.joint_seq)
-            self.stiffness_array_seq = params['kp']
-            self.damping_array_seq = params['kd']
-            self.joint_pos_array_seq = params['zero_pos']
-        else:
-            # 回退：从策略配置文件读取（兼容旧方式）
-            gains_config = policy_config.get('gains', {})
-            self.stiffness_array_seq = np.array(gains_config.get('kp', []), dtype=np.float32)
-            self.damping_array_seq = np.array(gains_config.get('kd', []), dtype=np.float32)
-
-            init_state_config = policy_config.get('init_state', {})
-            self.joint_pos_array_seq = np.array(init_state_config.get('default_joint_angles', []), dtype=np.float32)
-
-        # action_scale可以是标量或数组
+        self.action_num_ = 12
+        self.leg_joint_indices = np.arange(12, dtype=int)
+        self.arm_joint_indices = np.arange(12, 20, dtype=int)
+        print(f"\n[FSMStateHOMIE] [Action Config]")
+        print(f"  - action_num_: {self.action_num_}")
+        print(f"  - leg_joint_indices: {self.leg_joint_indices}")
+        print(f"  - arm_joint_indices: {self.arm_joint_indices}")
+        print(f"  - joint_xml length: {len(self.joint_xml)}")
+        
         if np.isscalar(self.action_scale_):
-            self.action_scale = np.full(len(self.joint_seq), float(self.action_scale_), dtype=np.float32)
+            self.action_scale = np.full(self.action_num_, float(self.action_scale_), dtype=np.float32)
         else:
-            self.action_scale = np.array(self.action_scale_[:len(self.joint_seq)], dtype=np.float32)
+            self.action_scale = np.array(self.action_scale_[:self.action_num_], dtype=np.float32)
+        print(f"  - action_scale: {self.action_scale}")
 
-        self.action_num_ = len(self.joint_seq)
-        print(f"[FSMStateHOMIE] Joint count: {len(self.joint_seq)}")
-
-        # Initialize inference engine from config (must be after action_num_ is set)
+        # ========== Inference Engine ==========
         self._init_inference_engine(policy_config, current_dir)
 
-        # Initialize buffers and actions
+        # ========== State Buffers ==========
         self.observations_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
         self.proprio_hist_buf_ = np.zeros(self.obs_size_ * self.num_hist_, dtype=np.float32)
         self.last_actions_ = np.zeros(self.action_num_, dtype=np.float32)
         self.actions_ = np.zeros(self.action_num_, dtype=np.float32)
         self._warm_start_pose = np.zeros(self.motor_num_, dtype=np.float32)
+        print(f"\n[FSMStateHOMIE] [State Buffers]")
+        print(f"  - observations_ shape: {self.observations_.shape}")
+        print(f"  - proprio_hist_buf_ shape: {self.proprio_hist_buf_.shape}")
+        print(f"  - last_actions_ shape: {self.last_actions_.shape}")
+        print(f"  - actions_ shape: {self.actions_.shape}")
+        print(f"  - _warm_start_pose shape: {self._warm_start_pose.shape}")
 
-        # warm_start_time from policy config
         warm_start_time = policy_config.get('warm_start_time', 0.3)
         step = (self.decimation_ if self.decimation_ else 1) * self.dt_
         if warm_start_time > 0 and step > 0:
@@ -144,91 +164,43 @@ class FSMStateHOMIE(FSMState):
         else:
             self._warm_start_steps = 0
         self._warmup_inference_counter = 0
+        print(f"\n[FSMStateHOMIE] [Warm Start Config]")
+        print(f"  - warm_start_time: {warm_start_time}")
+        print(f"  - step (decimation * dt): {step}")
+        print(f"  - _warm_start_steps: {self._warm_start_steps}")
 
-        # joint_xml: 从 config_manager 获取关节顺序（与 mujoco XML 一致）
-        if self.config_manager:
-            self.joint_xml = self.config_manager.get_joint_xml()
-            print(f"[FSMStateHOMIE] Joint XML from config manager: {len(self.joint_xml)} joints")
-        else:
-            # 回退：使用硬编码的 joint_xml
-            self.joint_xml = [
-                "hip_roll_l_joint", "hip_pitch_l_joint", "hip_yaw_l_joint",
-                "knee_pitch_l_joint", "ankle_pitch_l_joint", "ankle_roll_l_joint",
-                "hip_roll_r_joint", "hip_pitch_r_joint", "hip_yaw_r_joint",
-                "knee_pitch_r_joint", "ankle_pitch_r_joint", "ankle_roll_r_joint",
-                "shoulder_pitch_l_joint", "shoulder_roll_l_joint", "shoulder_yaw_l_joint",
-                "elbow_pitch_l_joint",
-                "shoulder_pitch_r_joint", "shoulder_roll_r_joint", "shoulder_yaw_r_joint",
-                "elbow_pitch_r_joint",
-            ]
-            print(f"[FSMStateHOMIE] Joint XML fallback count: {len(self.joint_xml)}")
-
-        # Map from lab joint order to mujoco XML joint order
-        self.lab2mj = []
-        for name in self.joint_seq:
-            if name not in self.joint_xml:
-                print(f"[FSMStateHOMIE] Warning: joint '{name}' not found in joint_xml, skipping")
-                continue
-            self.lab2mj.append(self.joint_xml.index(name))
-        self.lab2mj = np.array(self.lab2mj, dtype=int)
-
-        # Build arrays for mujoco
-        n_mj = len(self.joint_xml)
-        self.joint_pos_array = np.zeros(n_mj, dtype=np.float32)
-        self.stiffness_array = np.zeros(n_mj, dtype=np.float32)
-        self.damping_array = np.zeros(n_mj, dtype=np.float32)
-
-        for lab_idx, mj_idx in enumerate(self.lab2mj):
-            if lab_idx < len(self.joint_pos_array_seq):
-                self.joint_pos_array[mj_idx] = self.joint_pos_array_seq[lab_idx]
-            if lab_idx < len(self.stiffness_array_seq):
-                self.stiffness_array[mj_idx] = self.stiffness_array_seq[lab_idx]
-            if lab_idx < len(self.damping_array_seq):
-                self.damping_array[mj_idx] = self.damping_array_seq[lab_idx]
-
-        # Set other parameters
-        self.kps_lab = self.stiffness_array_seq
-        self.kds_lab = self.damping_array_seq
-        self.default_angles_lab = self.joint_pos_array_seq
-        self.action_scale_lab = self.action_scale
-
+        self.is_first_obs_ = True
+        self.is_first_action_ = True
+        self._last_engine_warn_time = 0.0
         self.filtered_x_speed = 0
 
-    def _reset_internal_state(self):
-        """把所有随时间变化的内部状态重置成初始值"""
+        print(f"\n[FSMStateHOMIE] ===============================================")
+        print(f"[FSMStateHOMIE] ============ __init__ End ===========")
+        print(f"[FSMStateHOMIE] ===============================================")
+        print(f"[FSMStateHOMIE] Summary:")
+        print(f"  - Total input size: {self.obs_size_ * self.num_hist_}")
+        print(f"  - Total output size: {self.action_num_}")
+        print(f"  - Motor num: {self.motor_num_}")
 
-        # 1) 清空 obs / hist / actions
+    def _reset_internal_state(self):
         self.observations_.fill(0.0)
         self.proprio_hist_buf_.fill(0.0)
         self.last_actions_.fill(0.0)
         self.actions_.fill(0.0)
-
-        # 2) 标志位重置
         self.is_first_obs_ = True
         self.is_first_action_ = True
-        self.is_first_step_ = True
-
-        # 3) 期望关节 / 期望速度 / 力矩重置为“初始姿态”
+        self._warmup_inference_counter = 0
+        
         base = self.robot_data_.q_d_.shape[0] - self.motor_num_
-        # # 期望角 = 初始角
-        self.robot_data_.q_d_[base:base + len(self.joint_xml)] = self.joint_pos_array
-        # # 期望速度 = 0
+        self.robot_data_.q_d_[base:base + len(self.joint_xml)] = self.default_joint_pos
         self.robot_data_.q_dot_d_[base:base + len(self.joint_xml)] = 0.0
-        # # 期望力矩 = 0（位置控制）
         self.robot_data_.tau_d_[base:base + len(self.joint_xml)] = 0.0
 
     def _init_inference_engine(self, policy_config: dict, current_dir: str):
-        """初始化推理引擎 - 根据 engine_type 条件判断读取对应引擎配置"""
-        # 获取引擎类型
         engine_type = policy_config.get('engine_type', 'onnx').lower()
-        
-        # 获取模型通用配置
         model_config = policy_config.get('model', {})
-        
-        # 根据 engine_type 条件判断，只读取当前选中引擎的配置
         engine_config = {'type': engine_type}
         
-        # 预检查模型文件存在性
         def check_model_file(path: str) -> bool:
             if not os.path.exists(path):
                 print(f"\033[91m[FSMStateHOMIE] ERROR: Model file does NOT exist: {path}\033[0m")
@@ -239,7 +211,6 @@ class FSMStateHOMIE(FSMState):
             return True
         
         if engine_type == 'onnx':
-            # 读取 ONNX 配置块
             onnx_cfg = policy_config.get('onnx', {})
             if not onnx_cfg:
                 raise ValueError("[FSMStateHOMIE] Missing 'onnx' config block in homie.yaml")
@@ -250,11 +221,9 @@ class FSMStateHOMIE(FSMState):
             engine_config['inter_op_num_threads'] = onnx_cfg.get('inter_op_num_threads', 1)
             engine_config['enable_mem_pattern'] = onnx_cfg.get('enable_mem_pattern', False)
             engine_config['enable_mem_reuse'] = onnx_cfg.get('enable_mem_reuse', True)
-            engine_config['graph_optimization_level'] = onnx_cfg.get(
-                'graph_optimization_level', 'ORT_ENABLE_ALL')
+            engine_config['graph_optimization_level'] = onnx_cfg.get('graph_optimization_level', 'ORT_ENABLE_ALL')
             
         elif engine_type == 'openvino':
-            # 读取 OpenVINO 配置块
             ov_cfg = policy_config.get('openvino', {})
             if not ov_cfg:
                 raise ValueError("[FSMStateHOMIE] Missing 'openvino' config block in homie.yaml")
@@ -265,7 +234,6 @@ class FSMStateHOMIE(FSMState):
             engine_config['cache_dir'] = ov_cfg.get('cache_dir', None)
             
         elif engine_type == 'pytorch':
-            # 读取 PyTorch 配置块
             pt_cfg = policy_config.get('pytorch', {})
             if not pt_cfg:
                 raise ValueError("[FSMStateHOMIE] Missing 'pytorch' config block in homie.yaml")
@@ -278,7 +246,6 @@ class FSMStateHOMIE(FSMState):
         else:
             raise ValueError(f"[FSMStateHOMIE] Unsupported engine type: {engine_type}")
         
-        # 合并通用配置，构建完整的引擎配置
         full_config = {
             'engine': engine_config,
             'model': {
@@ -296,31 +263,23 @@ class FSMStateHOMIE(FSMState):
             self.inference_engine_ = None
 
     def on_enter(self):
-        """进入WALKAMP状态"""
         self._reset_internal_state()
         print("[FSMStateHOMIE] enter")
-        self.is_first_obs_ = True
-        self.is_first_action_ = True
-        self._warmup_inference_counter = 0
-        self.timer_gait_ = 0.0
         self._last_engine_warn_time = 0.0
 
-        # 检查推理引擎状态
         if not hasattr(self, 'inference_engine_') or self.inference_engine_ is None:
-            print("\033[91m[FSMStateHOMIE] WARNING: Inference engine was NOT loaded successfully!\033[0m")
-            print("\033[91m[FSMStateHOMIE] Policy will NOT run! Check model path and engine config.\033[0m")
+            print("\033[91m[FSMStateHOMIE] WARNING: Inference engine NOT loaded!\033[0m")
         else:
-            # 重新加载推理引擎（如果之前被unload了）
             if not self.inference_engine_.is_loaded:
                 try:
                     self.inference_engine_.load()
-                    print("[FSMStateHOMIE] Inference engine reloaded on enter")
+                    print("[FSMStateHOMIE] Inference engine reloaded")
                 except Exception as e:
                     print(f"\033[91m[FSMStateHOMIE] Failed to reload inference engine: {e}\033[0m")
-        
+                    
         if self.inference_engine_ and self.inference_engine_.is_loaded:
-            print(f"[FSMStateHOMIE] ✅ Inference engine ready, running normally")
-
+            print(f"[FSMStateWALKAMP] ✅ Inference engine ready, running normally")
+        
         if self.robot_data_ is not None:
             try:
                 self._warm_start_pose = self.robot_data_.get_joint_pos().copy()
@@ -330,51 +289,41 @@ class FSMStateHOMIE(FSMState):
             self._warm_start_pose.fill(0.0)
 
     def run(self, flag: ControlFlag):
-        """运行WALKAMP状态 - 与C++版本完全一致"""
-        # Only run policy inference every decimation_ steps
-        gait = gait_phase(
-            self.timer_gait_,
-            self.gait_cycle,
-            self.left_theta_offset,
-            self.right_theta_offset,
-            self.left_phase_ratio,
-            self.right_phase_ratio,
-        ).astype(np.float32)
-
         if int(self.robot_data_.time_now_ / self.dt_) % self.decimation_ == 0:
-
-            # print(f"[FSMStateHOMIE] Gait phase: {gait}")
-            self.compute_observation(flag,gait)
+            self.compute_observation(flag)
             self.compute_actions()
-
-            # lab 顺序目标角 motion_num 维
-            target_dof_pos_lab = self.actions_ * self.action_scale_lab + self.default_angles_lab
-
-            # 拿一份当前 mj 顺序的关节角（或你原来用的 default 也行）
-            target_dof_pos_mj = self.robot_data_.get_joint_pos().copy()
-
-            # 只更新 motion_num 个受控 DOF
-            target_dof_pos_mj[self.lab2mj] = target_dof_pos_lab
-            commanded_pos = target_dof_pos_mj
+            
+            target_pos = self.robot_data_.get_joint_pos().copy()
+            target_pos[self.leg_joint_indices] = (
+                self.actions_ * self.action_scale + self.default_joint_pos[self.leg_joint_indices]
+            )
+            commanded_pos = target_pos
             if self._warm_start_steps > 0 and self._warmup_inference_counter < self._warm_start_steps:
                 self._warmup_inference_counter += 1
                 blend = self._warmup_inference_counter / float(self._warm_start_steps)
-                commanded_pos = (1.0 - blend) * self._warm_start_pose + blend * target_dof_pos_mj
-
+                commanded_pos = (1.0 - blend) * self._warm_start_pose + blend * target_pos
+            
             base = self.robot_data_.q_d_.shape[0] - self.motor_num_
+            
+            # DEBUG: 打印目标位置
+            if self.is_first_action_:
+                print(f"[DEBUG] target_pos[leg]: {target_pos[self.leg_joint_indices]}")
+                print(f"[DEBUG] commanded_pos[leg]: {commanded_pos[self.leg_joint_indices]}")
+                print(f"[DEBUG] base index: {base}, motor_num: {self.motor_num_}")
+                print(f"[DEBUG] joint_xml length: {len(self.joint_xml)}")
+                print(f"[DEBUG] stiffness_array[:6]: {self.stiffness_array[:6]}")
+                self.is_first_action_ = False
+            
             self.robot_data_.q_d_[base:base + len(self.joint_xml)] = commanded_pos
-
             self.robot_data_.q_dot_d_[base:base + len(self.joint_xml)] = 0.0
             self.robot_data_.tau_d_[base:base + len(self.joint_xml)] = 0.0
-
+            
             self.last_actions_[:] = self.actions_
-
-
-        self.timer_gait_ += self.dt_
+        
         self.robot_data_.joint_kp_p_[:len(self.joint_xml)] = self.stiffness_array
         self.robot_data_.joint_kd_p_[:len(self.joint_xml)] = self.damping_array
 
-    def compute_observation(self, flag: ControlFlag, gait):
+    def compute_observation(self, flag: ControlFlag):
         roll, pitch, yaw = (
                         float(self.robot_data_.imu_data_[2]),
                         float(self.robot_data_.imu_data_[1]),
@@ -384,7 +333,14 @@ class FSMStateHOMIE(FSMState):
         q_xyzw    = np.array([quat_wxyz[1], quat_wxyz[2], quat_wxyz[3], quat_wxyz[0]], dtype=np.float32)
         gravity_init   = self.quat_rotate_inverse_numpy(q_xyzw, np.array([0.,0.,-1.], dtype=np.float32))
         
-
+        # print(f"[DIAG] imu_data raw: {self.robot_data_.imu_data_}")
+        # print(f"[DIAG] roll={roll:.3f}, pitch={pitch:.3f}, yaw={yaw:.3f}")
+        # print(f"[DIAG] gravity_init: {gravity_init}")
+        
+        # gravity = self.robot_data_.get_project_gravity()      # 测试好像有问题
+        
+        # walk_cmd = self.robot_data_.get_walk_cmd()
+        # command = (walk_cmd * self.commands_scale).astype(np.float32) #测试好像有问题
         x_speed_command, y_speed_command, yaw_speed_command = self.robot_data_.get_walk_cmd()
         new_filtered_x_speed = 1 * x_speed_command + (1 - 1) * self.filtered_x_speed
         change = new_filtered_x_speed - self.filtered_x_speed
@@ -397,30 +353,35 @@ class FSMStateHOMIE(FSMState):
                 yaw_speed_command,
             ], dtype=np.float32),
         ])
-
-        ang_vel = self.robot_data_.get_angular_velocity()
-        q_mj = self.robot_data_.get_joint_pos()   # mj 顺序，长度 29
-        dq_mj = self.robot_data_.get_joint_vel()
-
-        # 只取 motion_num 个受控关节，变成 lab 顺序
-        qj = q_mj[self.lab2mj]
-        dqj = dq_mj[self.lab2mj]
-
-        qj = qj - self.default_angles_lab
-
-
-        # Observation = ang_vel(3) + gravity(3) + command(3) + q(motion_num) + dq(motion_num) + action(motion_num) + gait(6)= 84
+        command = (command * self.commands_scale).astype(np.float32)
+        height_cmd = np.array([getattr(flag, 'height_cmd', getattr(flag, 'walk_height_command', 0.9))], dtype=np.float32)
+        
+        # 应用观测缩放因子（与训练配置一致）
+        ang_vel = self.robot_data_.get_angular_velocity() * self.ang_vel_scale_
+        
+        q_mj = self.robot_data_.get_joint_pos()
+        dq_mj = self.robot_data_.get_joint_vel() * self.dof_vel_scale_
+        
+        # DEBUG: 打印关节数据维度
+        # print(f"[DEBUG] q_mj shape: {q_mj.shape}, dq_mj shape: {dq_mj.shape}")
+        # print(f"[DEBUG] q_mj[:6]: {q_mj[:6]}")
+        # print(f"[DEBUG] dq_mj[:6]: {dq_mj[:6]}")
+        
+        qj = (q_mj - self.default_joint_pos) * self.dof_pos_scale_
+        
         proprio = np.concatenate([
-            ang_vel ,              # 3 elements
-            gravity_init,
             command,
+            height_cmd,
+            ang_vel,
+            gravity_init,
             qj,
-            dqj,
+            dq_mj,
             self.last_actions_,
-            gait
         ])
 
-        # History buffer management exactly like C++
+        # DEBUG: 打印 proprio 维度
+        # print(f"[DEBUG] proprio shape: {proprio.shape}, expected: {self.obs_size_}")
+
         if self.is_first_obs_:
             for i in range(self.num_hist_):
                 start_idx = i * self.obs_size_
@@ -428,14 +389,11 @@ class FSMStateHOMIE(FSMState):
                 self.proprio_hist_buf_[start_idx:end_idx] = proprio
             self.is_first_obs_ = False
         else:
-            # Shift history: head((num_hist-1)*obs_size) = tail((num_hist-1)*obs_size)
             shift_size = (self.num_hist_ - 1) * self.obs_size_
             self.proprio_hist_buf_[:shift_size] = self.proprio_hist_buf_[self.obs_size_:]
             self.proprio_hist_buf_[shift_size:] = proprio
 
-        # Clip observations exactly like C++
         self.observations_ = np.clip(self.proprio_hist_buf_, -self.clip_obs_, self.clip_obs_)
-
 
     @staticmethod
     def euler_to_quaternion_scipy(roll, pitch, yaw, degrees=False):
@@ -451,45 +409,50 @@ class FSMStateHOMIE(FSMState):
         b = np.cross(q_v, v) * (2.0 * q_w)
         c = q_v * (2.0 * np.dot(q_v, v))
         return a - b + c
+
     def compute_actions(self):
         if not hasattr(self, 'inference_engine_') or self.inference_engine_ is None:
-            # 每5秒输出一次警告防止刷屏
             if self.robot_data_.time_now_ - self._last_engine_warn_time > 5.0:
                 print(f"\033[91m[FSMStateHOMIE] WARNING: No inference engine! Cannot compute actions at t={self.robot_data_.time_now_:.1f}s\033[0m")
                 self._last_engine_warn_time = self.robot_data_.time_now_
             return
 
+        # print(f"[DIAG] observations_[:10]: {self.observations_[:10]}")
+        # print(f"[DIAG] observations_[-15:]: {self.observations_[-15:]}")
+        # print(f"[DIAG] observations_ min/max: {self.observations_.min():.4f}/{self.observations_.max():.4f}")
+    
         try:
-            # Prepare input tensor
             input_data = self.observations_.reshape(1, -1).astype(np.float32)
-
-            # Inference using unified engine interface
             output_data = self.inference_engine_.infer(input_data)[0]
 
-            # Extract and clip actions exactly like C++
+            # DEBUG: 打印推理输出
+            # print(f"[DEBUG] Infer output shape: {output_data.shape}, values: {output_data[:6]}")
+
             for i in range(self.action_num_):
                 self.actions_[i] = np.clip(output_data[i], -self.clip_act_, self.clip_act_)
+
+            # DEBUG: 打印动作输出
+            # print(f"[DEBUG] Actions: {self.actions_}")
 
             if self.is_first_action_:
                 print("[FSMStateHOMIE] First Observation:")
                 for i in range(self.obs_size_):
-                    print(f"{self.observations_[i]:.6f} ", end="")
+                    print(f"[FSMStateHOMIE]  the {i}th observation is {self.observations_[i]:.6f} ", end="")
                 print()
                 self.is_first_action_ = False
+                
+            # print(f"[FSMStateHOMIE] Actions computed at t={self.robot_data_.time_now_:.2f}s: {self.actions_}")
 
         except Exception as e:
             print(f"[FSMStateHOMIE] Inference error: {e}")
 
     def on_exit(self):
-        """退出WALKAMP状态"""
         print("[FSMStateHOMIE] exit")
-        # 释放推理引擎
         if hasattr(self, 'inference_engine_') and self.inference_engine_ is not None:
             try:
                 self.inference_engine_.unload()
             except Exception as e:
                 print(f"[FSMStateHOMIE] failed to unload inference engine: {e}")
-        # 关掉 obs 日志文件（如果存在）
         obs_log_file = getattr(self, "obs_log_file", None)
         if obs_log_file is not None:
             try:
@@ -502,12 +465,13 @@ class FSMStateHOMIE(FSMState):
             self.obs_log_file = None
 
     def check_transition(self, flag: ControlFlag) -> Optional[FSMStateName]:
-        """检查状态转换"""
         if flag.fsm_state_command == "gotoSTOP":
             return FSMStateName.STOP
-        elif flag.fsm_state_command == "gotoWALKAMP":
-            return FSMStateName.WALKAMP
+        elif flag.fsm_state_command == "gotoHOMIE":
+            return FSMStateName.HOMIE
         elif flag.fsm_state_command == "gotoZERO":
             return FSMStateName.ZERO
+        elif flag.fsm_state_command == "gotoWALKAMP":
+            return FSMStateName.WALKAMP
         else:
-            return None  # 无状态转换
+            return None

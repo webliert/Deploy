@@ -92,6 +92,10 @@ policies:
       enabled: false
       class: "FSMStateBeyondZero"
 
+    homie:
+      enabled: true
+      class: "FSMStateHOMIE"
+
 # -------------------- 推理引擎默认配置 --------------------
 # 所有策略共享的默认推理引擎配置
 # 策略可以在自己的配置中覆盖这些设置

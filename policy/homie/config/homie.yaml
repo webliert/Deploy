@@ -19,7 +19,7 @@ model:
 # ONNX Runtime 配置
 # ============================================================
 onnx:
-  model_path: "onnx/homie.onnx" # ONNX 模型路径
+  model_path: "onnx/policy_0.onnx" # ONNX 模型路径
   intra_op_num_threads: 1 # 算子内部并行线程数
   inter_op_num_threads: 1 # 算子间并行线程数
   enable_mem_pattern: false # 禁用内存模式（固定输入大小）
@@ -38,7 +38,7 @@ openvino:
 # PyTorch 配置
 # ============================================================
 pytorch:
-  model_path: "pytorch/walk_lite_40700.pt" # PyTorch 模型路径 (.pt 或 .pth)
+  model_path: "pytorch/policy.pt" # PyTorch 模型路径 (.pt 或 .pth)
   device: "cpu" # 推理设备: cpu, cuda
   jit_trace: false # 是否使用 JIT trace 模型
 
@@ -57,3 +57,74 @@ normalization:
   clip_scales:
     clip_observations: 100.0
     clip_actions: 100.0
+
+special:
+  kp:
+    [
+      700.0,
+      700.0,
+      500.0,
+      700.0,
+      30.0,
+      16.8,
+      700.0,
+      700.0,
+      500.0,
+      700.0,
+      30.0,
+      16.8,
+      60.0,
+      20.0,
+      10.0,
+      10.0,
+      60.0,
+      20.0,
+      10.0,
+      10.0,
+    ]
+  kd:
+    [
+      10.0,
+      10.0,
+      5.0,
+      10.0,
+      2.5,
+      1.4,
+      10.0,
+      10.0,
+      5.0,
+      10.0,
+      2.5,
+      1.4,
+      3.0,
+      1.5,
+      1.0,
+      1.0,
+      3.0,
+      1.5,
+      1.0,
+      1.0,
+    ]
+  zero_pos:
+    [
+      0.0,
+      -0.5,
+      0.0,
+      1.0,
+      -0.5,
+      0.0,
+      0.0,
+      -0.5,
+      0.0,
+      1.0,
+      -0.5,
+      0.0,
+      0.0,
+      0.1,
+      0.0,
+      -0.3,
+      0.0,
+      -0.1,
+      0.0,
+      -0.3,
+    ]

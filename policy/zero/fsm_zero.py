@@ -84,5 +84,7 @@ class FSMStateZero(FSMState):
             return FSMStateName.ZERO
         elif flag.fsm_state_command == "gotoBEYONDZERO":
             return FSMStateName.BEYONDZERO
+        elif flag.fsm_state_command == "gotoHOMIE":
+            return FSMStateName.HOMIE
         else:
             return None  # 无状态转换

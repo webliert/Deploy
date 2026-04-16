@@ -66,7 +66,7 @@ num_privileged_obs = 1 * 65 = 65 # Critic总输入维度
 
 #### 网络结构
 ```python
-Actor MLP: [mlp_input_dim] -> [512, 256, 128] -> [num_actions=12]
+Actor MLP: [mlp_input_dim] -> [512, 256, 256] -> [num_actions=12]
 ```
 
 #### 输出
@@ -84,7 +84,7 @@ Actor MLP: [mlp_input_dim] -> [512, 256, 128] -> [num_actions=12]
 
 #### 网络结构
 ```python
-Critic MLP: [65] -> [512, 256, 128] -> [1]
+Critic MLP: [65] -> [512, 256, 256] -> [1]
 ```
 
 #### 输出
@@ -193,3 +193,105 @@ self.commands_scale = torch.tensor([self.obs_scales.lin_vel, self.obs_scales.lin
 - 第三个元素：`obs_scales.ang_vel` = 0.5（用于偏航角速度）
 
 这个缩放因子用于在 `compute_observations()` 中对命令进行缩放：`self.commands[:, :3] * self.commands_scale`
+
+
+
+根据 URDF 文件和配置文件，我整理了完整的关节信息：
+
+## 一、关节顺序 (按 URDF 定义顺序)
+
+| 索引 | 关节名称               | 类型 |
+| ---- | ---------------------- | ---- |
+| 0    | hip_roll_l_joint       | 左腿 |
+| 1    | hip_pitch_l_joint      | 左腿 |
+| 2    | hip_yaw_l_joint        | 左腿 |
+| 3    | knee_pitch_l_joint     | 左腿 |
+| 4    | ankle_pitch_l_joint    | 左腿 |
+| 5    | ankle_roll_l_joint     | 左腿 |
+| 6    | hip_roll_r_joint       | 右腿 |
+| 7    | hip_pitch_r_joint      | 右腿 |
+| 8    | hip_yaw_r_joint        | 右腿 |
+| 9    | knee_pitch_r_joint     | 右腿 |
+| 10   | ankle_pitch_r_joint    | 右腿 |
+| 11   | ankle_roll_r_joint     | 右腿 |
+| 12   | shoulder_pitch_l_joint | 左臂 |
+| 13   | shoulder_roll_l_joint  | 左臂 |
+| 14   | shoulder_yaw_l_joint   | 左臂 |
+| 15   | elbow_pitch_l_joint    | 左臂 |
+| 16   | shoulder_pitch_r_joint | 右臂 |
+| 17   | shoulder_roll_r_joint  | 右臂 |
+| 18   | shoulder_yaw_r_joint   | 右臂 |
+| 19   | elbow_pitch_r_joint    | 右臂 |
+
+---
+
+## 二、完整参数表
+
+| 索引 | 关节名称               | Kp [N·m/rad] | Kd [N·m·s/rad] | Default Pos [rad] | 控制方式 |
+| ---- | ---------------------- | ------------ | -------------- | ----------------- | -------- |
+| 0    | hip_roll_l_joint       | 700          | 10             | 0.0               | 力矩     |
+| 1    | hip_pitch_l_joint      | 700          | 10             | **-0.5**          | 力矩     |
+| 2    | hip_yaw_l_joint        | 500          | 5              | 0.0               | 力矩     |
+| 3    | knee_pitch_l_joint     | 700          | 10             | **1.0**           | 力矩     |
+| 4    | ankle_pitch_l_joint    | 30           | 2.5            | **-0.5**          | 力矩     |
+| 5    | ankle_roll_l_joint     | 16.8         | 1.4            | 0.0               | 力矩     |
+| 6    | hip_roll_r_joint       | 700          | 10             | 0.0               | 力矩     |
+| 7    | hip_pitch_r_joint      | 700          | 10             | **-0.5**          | 力矩     |
+| 8    | hip_yaw_r_joint        | 500          | 5              | 0.0               | 力矩     |
+| 9    | knee_pitch_r_joint     | 700          | 10             | **1.0**           | 力矩     |
+| 10   | ankle_pitch_r_joint    | 30           | 2.5            | **-0.5**          | 力矩     |
+| 11   | ankle_roll_r_joint     | 16.8         | 1.4            | 0.0               | 力矩     |
+| 12   | shoulder_pitch_l_joint | 60           | 3              | 0.0               | 位置     |
+| 13   | shoulder_roll_l_joint  | 20           | 1.5            | 0.1               | 位置     |
+| 14   | shoulder_yaw_l_joint   | 10           | 1              | 0.0               | 位置     |
+| 15   | elbow_pitch_l_joint    | 10           | 1              | -0.3              | 位置     |
+| 16   | shoulder_pitch_r_joint | 60           | 3              | 0.0               | 位置     |
+| 17   | shoulder_roll_r_joint  | 20           | 1.5            | -0.1              | 位置     |
+| 18   | shoulder_yaw_r_joint   | 10           | 1              | 0.0               | 位置     |
+| 19   | elbow_pitch_r_joint    | 10           | 1              | -0.3              | 位置     |
+
+---
+
+## 三、观测向量 (Observation) 结构
+
+单步观测维度：**62**
+
+| 起始索引 | 结束索引 | 内容                                            | 维度 | 缩放因子             |
+| -------- | -------- | ----------------------------------------------- | ---- | -------------------- |
+| 0        | 3        | command[:3] (lin_vel_x, lin_vel_y, ang_vel_yaw) | 3    | × obs_scales.lin_vel |
+| 3        | 4        | command[4] (height_cmd)                         | 1    | 无缩放               |
+| 4        | 7        | imu_ang_vel (角速度)                            | 3    | × obs_scales.ang_vel |
+| 7        | 10       | imu_projected_gravity (重力方向)                | 3    | 无缩放               |
+| 10       | 30       | dof_pos - default_dof_pos (20个关节)            | 20   | × obs_scales.dof_pos |
+| 30       | 50       | dof_vel (20个关节速度)                          | 20   | × obs_scales.dof_vel |
+| 50       | 62       | actions[:12] (上一步动作)                       | 12   | 无缩放               |
+
+**总观测维度：** 62 × 6 (历史长度) = **372**
+
+---
+
+## 四、缩放因子
+
+```python
+obs_scales.lin_vel = 2.0    # 需要查看基础配置
+obs_scales.ang_vel = 0.5
+obs_scales.dof_pos = 1.0
+obs_scales.dof_vel = 0.05
+action_scale = 0.25
+```
+
+---
+
+## 五、部署时需要的数组格式
+
+```python
+# 只需要前12个关节 (腿部)
+kps = [700, 700, 500, 700, 30, 16.8,   # 左腿
+       700, 700, 500, 700, 30, 16.8]   # 右腿
+
+kds = [10, 10, 5, 10, 2.5, 1.4,        # 左腿
+       10, 10, 5, 10, 2.5, 1.4]        # 右腿
+
+default_angles = [0.0, -0.5, 0.0, 1.0, -0.5, 0.0,  # 左腿
+                  0.0, -0.5, 0.0, 1.0, -0.5, 0.0]  # 右腿
+```
