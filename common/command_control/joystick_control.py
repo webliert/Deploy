@@ -172,7 +172,7 @@ class JoystickHumanoid:
                         elif self.joy_map.d == 1.0:
                             self.joy_flag.fsm_state_command = "gotoBEYONDZERO"
 
-
+#上拨动是-1.0 下拨动是1.0
 
     def get_joy_flag(self) -> ControlFlag:
         """获取当前手柄标志"""

@@ -5,7 +5,7 @@
 # 推理引擎类型选择：onnx / openvino / pytorch
 # 修改此值即可切换推理引擎，代码会自动读取对应引擎的配置块
 # ============================================================
-engine_type: "onnx"
+engine_type: "onnx" # 可选值: "onnx", "openvino", "pytorch"
 
 # ============================================================
 # 模型通用配置（所有引擎共享）
@@ -19,7 +19,7 @@ model:
 # ONNX Runtime 配置
 # ============================================================
 onnx:
-  model_path: "onnx/policy_0.onnx" # ONNX 模型路径
+  model_path: "onnx/homie.onnx" # ONNX 模型路径
   intra_op_num_threads: 1 # 算子内部并行线程数
   inter_op_num_threads: 1 # 算子间并行线程数
   enable_mem_pattern: false # 禁用内存模式（固定输入大小）

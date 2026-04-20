@@ -354,7 +354,7 @@ class FSMStateHOMIE(FSMState):
             ], dtype=np.float32),
         ])
         command = (command * self.commands_scale).astype(np.float32)
-        height_cmd = np.array([getattr(flag, 'height_cmd', getattr(flag, 'walk_height_command', 0.9))], dtype=np.float32)
+        height_cmd = np.array([getattr(flag, 'height_cmd', getattr(flag, 'walk_height_command', 1.5))], dtype=np.float32)
         
         # 应用观测缩放因子（与训练配置一致）
         ang_vel = self.robot_data_.get_angular_velocity() * self.ang_vel_scale_
